@@ -1,0 +1,10 @@
+requests
+beautifulsoup4
+lxml
+numpy
+pandas
+scikit-learn
+anthropic          # OPTIONAL: synthesize_story.py nutzt es, wenn installiert,
+                   # fällt sonst automatisch auf einen direkten HTTP-Call
+                   # gegen die Anthropic-API zurück (nur ANTHROPIC_API_KEY
+                   # + requests nötig, s. pipeline/synthesize_story.py::_create_message)
