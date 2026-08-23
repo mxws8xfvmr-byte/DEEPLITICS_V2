@@ -65,6 +65,7 @@ Gib AUSSCHLIESSLICH valides JSON zurück mit exakt diesen Feldern:
 
 {
   "title": "kurzer, präziser Story-Titel",
+  "theme_category": "GENAU EINER dieser 6 Werte, exakt so geschrieben (Kleinbuchstaben, keine anderen Werte erlaubt): \"security\" (Sicherheit & Militär), \"diplomacy\" (Diplomatie), \"trade\" (Handel & Wirtschaft), \"rights\" (Migration & Bürgerrechte), \"conflict\" (Konflikt & Krieg), \"surveillance\" (Überwachung & Innenpolitik). Waehle die am besten passende Kategorie, auch wenn mehrere denkbar waeren -- dieses Feld steuert die Filter-Chips im Frontend und MUSS gesetzt sein.",
   "one_line": "1 Satz, worum es geht. Darf [[Entitätsname]]-Referenzen enthalten.",
 
   "summary": [
@@ -595,6 +596,9 @@ def synthesize_with_claude(
     return _finalize_story_dict(data, selected, config=config, resp=resp)
 
 
+VALID_THEME_CATEGORIES = {"security", "diplomacy", "trade", "rights", "conflict", "surveillance"}
+
+
 def _finalize_story_dict(
     data: dict,
     articles: list[dict],
@@ -604,6 +608,20 @@ def _finalize_story_dict(
     data["id"] = str(uuid.uuid4())[:8]
     data["sources"] = sorted({a["source"] for a in articles})
     data["article_urls"] = [a.get("link") or a.get("url") for a in articles]
+
+    # HARTE Absicherung (gefunden 23.08.2026): das Frontend filtert Storys
+    # client-seitig nach `theme_category` gegen genau diese 6 Werte -- ein
+    # fehlender/falscher Wert macht eine sonst valide Story unsichtbar,
+    # OHNE Fehler irgendwo im Log. Lieber ein geloggter Fallback als eine
+    # stumm verschwindende Story.
+    cat = data.get("theme_category")
+    if cat not in VALID_THEME_CATEGORIES:
+        print(
+            f"[warn] Story '{data.get('title', '?')}': ungueltige/fehlende "
+            f"theme_category ({cat!r}), fallback auf 'conflict'.",
+            file=sys.stderr,
+        )
+        data["theme_category"] = "conflict"
 
     # In "lite" wurden diese Felder gar nicht ins Prompt aufgenommen, hier
     # HART auf leer/null erzwingen statt dem Modell zu vertrauen, dass es
