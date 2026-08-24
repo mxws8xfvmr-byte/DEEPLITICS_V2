@@ -56,6 +56,7 @@ import os
 import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from itertools import zip_longest
 
 from pipeline.config import DEFAULT_CONFIG, PipelineConfig
@@ -134,7 +135,28 @@ Gib AUSSCHLIESSLICH valides JSON zurück mit exakt diesen Feldern:
 {RESEARCH_FIELDS}
   "connections": [{"source": "EntityA", "target": "EntityB", "relation": "kurze Beschreibung der Beziehung"}],
   "countries_covered": ["..."],
-  "image_url": "das og:image (Vorschaubild) EINES der Quellartikel, siehe pipeline/extract_article.py::extract_og_image. NIEMALS eine URL erfinden, sonst null."
+  "image_url": "EXAKT eine der 'BILD:'-URLs aus den Artikeln oben (das eines der Quellartikel, das am besten zur Story passt), NIEMALS eine URL erfinden oder veraendern -- wenn KEIN Artikel ein Bild hat, null setzen.",
+
+  "stakeholders": {
+    "pro": [
+      {
+        "entity": "muss exakt mit einem 'name' aus 'entities' uebereinstimmen",
+        "reason": "1 knapper Satz: WORIN konkret der Vorteil/Gewinn besteht"
+      }
+    ],
+    "con": [
+      {
+        "entity": "muss exakt mit einem 'name' aus 'entities' uebereinstimmen",
+        "reason": "1 knapper Satz: WORIN konkret der Nachteil/Verlust besteht"
+      }
+    ],
+    "note": "optionaler 1-Satz-Hinweis, z.B. Unsicherheit/Kontext, sonst null"
+  }
+  // 1-4 Eintraege je Seite (pro/con), NUR Akteure, die auch in 'entities'
+  // auftauchen (damit sie im Frontend anklickbar sind). Leer lassen
+  // ([]) statt einen Akteur zu erfinden, der nicht durch die Quellen
+  // gedeckt ist. stakeholders selbst NULL setzen nur, wenn wirklich
+  // weder Gewinner noch Verlierer identifizierbar sind (selten).
 }
 """
 
@@ -350,6 +372,9 @@ def _build_prompt_text(selected: list[dict], config: PipelineConfig) -> str:
     joined = "\n\n---\n\n".join(
         f"QUELLE: {a['source']} ({a.get('country','?')})\n"
         f"TITEL: {a['title']}\n"
+        f"BILD (og:image, falls vorhanden -- NUR diese exakte URL darfst du "
+        f"als 'image_url' verwenden, niemals eine andere erfinden): "
+        f"{a.get('og_image') or 'keins gefunden'}\n"
         f"TEXT: {a.get('text') or a.get('summary','')}"
         for a in selected
     )
@@ -606,6 +631,10 @@ def _finalize_story_dict(
     resp=None,
 ) -> dict:
     data["id"] = str(uuid.uuid4())[:8]
+    # Zeitstempel, wann diese Story generiert wurde -- gebraucht fuer die
+    # Story-AKKUMULATION in run_pipeline.py (neueste zuerst einsortiert)
+    # und als ehrliches "Stand"-Datum je Story, nicht nur global im Header.
+    data["generated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     data["sources"] = sorted({a["source"] for a in articles})
     data["article_urls"] = [a.get("link") or a.get("url") for a in articles]
 
