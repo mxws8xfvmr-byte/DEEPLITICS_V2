@@ -75,6 +75,14 @@ class PipelineConfig:
     # auf eine feste Zahl setzen, unabhängig davon wie viele Cluster
     # entstehen.
     max_stories_per_run: int | None = None
+    # Story-AKKUMULATION (Nutzerwunsch 23.08.2026): bestehende Storys in
+    # data/stories.json bleiben über Läufe hinweg erhalten, neue werden
+    # davorgestellt (neueste zuerst), statt sie komplett zu überschreiben,
+    # s. run_pipeline.py::_merge_stories. Dieses Feld deckelt die
+    # GESAMTZAHL gespeicherter Storys (älteste fliegen zuerst raus), damit
+    # data/stories.json nicht über Monate hinweg unbegrenzt wächst. None
+    # = kein Deckel (uneingeschränktes Wachstum).
+    max_total_stories: int | None = 150
     # parallele API-Calls; die Anthropic-API hat pro Organisation ein
     # Rate-Limit, ein niedriger konservativer Default vermeidet 429s ohne
     # dass man das erst tunen muss.
