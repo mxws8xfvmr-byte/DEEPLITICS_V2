@@ -70,7 +70,13 @@
     view: "home",
     currentStoryId: null,
     activeTab: 0,
-    activeThread: {}
+    activeThread: {},
+    // Tipp-Animation der Begrüßung: nur EINMAL beim ersten Laden abspielen,
+    // nicht bei jedem Re-Render (z.B. Kategorie-Filter-Klick), sonst würde
+    // der Spruch bei jedem Klick neu getippt werden.
+    greetingText: null,
+    greetingTyped: false,
+    introGridPlayed: false
   };
 
   function t(key) { return STR[state.lang][key]; }
@@ -117,7 +123,10 @@
     organization: '<svg viewBox="0 0 24 24" fill="none"><path d="M5 21V6l7-3 7 3v15" stroke="#fff" stroke-opacity=".92" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 21v-6h6v6M9 10h.01M12 10h.01M15 10h.01M9 13.5h.01M15 13.5h.01" stroke="#fff" stroke-opacity=".92" stroke-width="1.7" stroke-linecap="round"/></svg>',
     country: '<svg viewBox="0 0 24 24" fill="none"><path d="M6 3v18" stroke="#fff" stroke-opacity=".92" stroke-width="1.8" stroke-linecap="round"/><path d="M6 4h11l-2.5 3L17 10H6" fill="#fff" fill-opacity=".92"/></svg>',
     concept: '<svg viewBox="0 0 24 24" fill="none"><path d="M9 18h6M10 21h4" stroke="#fff" stroke-opacity=".92" stroke-width="1.7" stroke-linecap="round"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.4.3.6.8.6 1.3V16h6v-.9c0-.5.2-1 .6-1.3A6 6 0 0 0 12 3Z" fill="none" stroke="#fff" stroke-opacity=".92" stroke-width="1.7"/></svg>',
-    event: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 2v4M12 22c5 0 8-3.6 8-8 0-3.4-2-6-4.5-8.5C14 7 13 8.6 13 10c0-2-1-4-3-6-1 2-4 5-4 9 0 4.4 3 9 6 9Z" fill="#fff" fill-opacity=".9"/></svg>'
+    /* Schlichter Kreis statt Flamme (Nutzer-Feedback 24.08.2026, Bauhaus-
+       Richtung): ein einfaches geometrisches Motiv statt eines
+       gegenstaendlichen Icons passt besser zur flachen, kraeftigen Palette. */
+    event: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7.5" fill="#fff" fill-opacity=".9"/></svg>'
   };
   function typeIcon(type) { return ICON[type] || ICON.concept; }
 
@@ -187,22 +196,22 @@
   /* ---------------- greeting ---------------- */
   var GREETINGS = {
     de: {
-      night:   ["Nachteule? Wir auch.", "Um diese Zeit liest man Krimis oder Weltpolitik. Willkommen bei Letzterem.", "Die Welt schläft nie — du offenbar auch nicht.", "Ruhige Stunden, unruhige Weltlage."],
-      early:   ["Schon wach? Hier ist, was die Nacht über passiert ist.", "Kaffee eingeschenkt? Gut, dann legen wir los.", "Der Tag ist noch jung, die Nachrichtenlage nicht.", "Früher Vogel, frühe Einordnung."],
-      morning: ["Guten Morgen — hier ist dein Überblick.", "Ausgeschlafen? Die Politik war es nicht.", "Ein neuer Tag, die alten Konflikte.", "Auf geht's, die Welt hat sich weitergedreht."],
-      noon:    ["Mittagspause? Perfekt für etwas Weltgeschehen.", "Die Hälfte des Tages ist geschafft — hier der Zwischenstand.", "Zeit für eine Prise Politik zum Mittagessen."],
-      after:   ["Der Nachmittag ist da, die Schlagzeilen auch.", "Zwischen Terminen: ein Blick auf das große Ganze.", "Tief durchatmen und eintauchen."],
-      evening: ["Feierabend. Zeit zu verstehen, was heute wirklich passiert ist.", "Der Tag neigt sich, die Analyse beginnt.", "Jetzt wird's ruhiger — genug Zeit für die tieferen Zusammenhänge."],
-      late:    ["Der Abend gehört dir — und ein bisschen der Weltpolitik.", "Bevor der Tag endet: ein Blick hinter die Kulissen.", "Noch wach? Die Diplomatie ist es auch."]
+      night:   ["Nachteule? Wir auch.", "Um diese Zeit liest man Krimis oder Weltpolitik. Willkommen bei Letzterem.", "Die Welt schläft nie — du offenbar auch nicht.", "Ruhige Stunden, unruhige Weltlage.", "Mitternacht ist vorbei, die Krisenherde nicht.", "Kein Schlaf? Dann wenigstens gut informiert.", "Die Nacht ist still, die Nachrichtenlage nicht.", "Um diese Uhrzeit ist jeder Gedanke tiefer — auch die Politik.", "Irgendwo zwischen Traum und Tagesordnung.", "Wer jetzt noch wach ist, hat sich den Überblick verdient."],
+      early:   ["Schon wach? Hier ist, was die Nacht über passiert ist.", "Kaffee eingeschenkt? Gut, dann legen wir los.", "Der Tag ist noch jung, die Nachrichtenlage nicht.", "Früher Vogel, frühe Einordnung.", "Die Sonne ist kaum auf, die Weltpolitik längst wach.", "Ruhig hier, unruhig da draußen — ein kurzer Überblick.", "Bevor der Tag dich einholt: die wichtigsten Linien in Kürze.", "Erste Tasse Kaffee, erste Einordnung des Tages."],
+      morning: ["Guten Morgen — hier ist dein Überblick.", "Ausgeschlafen? Die Politik war es nicht.", "Ein neuer Tag, die alten Konflikte.", "Auf geht's, die Welt hat sich weitergedreht.", "Der Vormittag gehört dir — nimm dir fünf Minuten für den Kontext.", "Guten Morgen. Was gestern begann, ist heute noch nicht vorbei.", "Kurzer Espresso, kurzer Überblick — dann geht's weiter.", "Die Nachrichtenlage hat schon Frühschicht."],
+      noon:    ["Mittagspause? Perfekt für etwas Weltgeschehen.", "Die Hälfte des Tages ist geschafft — hier der Zwischenstand.", "Zeit für eine Prise Politik zum Mittagessen.", "Kurze Pause, langer Blick auf das, was gerade zählt.", "Der Vormittag ist vorbei — die Weltlage hat trotzdem nicht pausiert.", "Zwölf Uhr, Zeit für den Zwischenstand."],
+      after:   ["Der Nachmittag ist da, die Schlagzeilen auch.", "Zwischen Terminen: ein Blick auf das große Ganze.", "Tief durchatmen und eintauchen.", "Das Nachmittagstief lässt sich am besten mit etwas Kontext überbrücken.", "Noch ein paar Stunden bis Feierabend — und noch ein paar offene Fragen zur Weltlage.", "Kurz durchatmen, dann tiefer einsteigen."],
+      evening: ["Feierabend. Zeit zu verstehen, was heute wirklich passiert ist.", "Der Tag neigt sich, die Analyse beginnt.", "Jetzt wird's ruhiger — genug Zeit für die tieferen Zusammenhänge.", "Der Bildschirm der Arbeit ist zu, der der Weltpolitik geht jetzt auf.", "Abendlicht, Klartext: was heute wirklich zählt.", "Der Tag ist fast rum — die wichtigsten Linien noch nicht."],
+      late:    ["Der Abend gehört dir — und ein bisschen der Weltpolitik.", "Bevor der Tag endet: ein Blick hinter die Kulissen.", "Noch wach? Die Diplomatie ist es auch.", "Die letzten Stunden des Tages, für die wichtigsten Fragen.", "Kein Fernsehprogramm heute — dafür die Weltlage in Ruhe.", "Der Abend ist ruhig, die Lage bleibt komplex."]
     },
     en: {
-      night:   ["Night owl? Same here.", "At this hour it's either crime novels or world politics. Welcome to the latter.", "The world never sleeps — clearly, neither do you."],
-      early:   ["Already up? Here's what happened overnight.", "Coffee poured? Good, let's get into it.", "The day is young, the news cycle isn't."],
-      morning: ["Good morning — here's your overview.", "Well rested? Politics wasn't.", "A new day, the same old conflicts."],
-      noon:    ["Lunch break? Perfect timing for some world affairs.", "Halfway through the day — here's where things stand."],
-      after:   ["The afternoon is here, so are the headlines.", "Between meetings: a look at the bigger picture."],
-      evening: ["Day's done. Time to understand what actually happened today.", "The day winds down, the analysis begins."],
-      late:    ["The evening is yours — and a little bit of world politics too.", "Before the day ends: a look behind the scenes."]
+      night:   ["Night owl? Same here.", "At this hour it's either crime novels or world politics. Welcome to the latter.", "The world never sleeps — clearly, neither do you.", "Quiet hours, restless world.", "Midnight's long gone. The crises haven't noticed.", "Can't sleep? At least stay informed.", "The night is still. The news cycle isn't.", "Everything feels deeper at this hour — even politics.", "Somewhere between a dream and the day's agenda.", "Still up? You've earned the overview."],
+      early:   ["Already up? Here's what happened overnight.", "Coffee poured? Good, let's get into it.", "The day is young, the news cycle isn't.", "Early bird, early context.", "The sun's barely up. World politics has been awake for hours.", "Quiet in here, loud out there — a quick overview.", "Before the day catches up with you: the main threads, briefly.", "First coffee, first read on the day."],
+      morning: ["Good morning — here's your overview.", "Well rested? Politics wasn't.", "A new day, the same old conflicts.", "Off we go, the world kept turning overnight.", "The morning is yours — five minutes for context first.", "Good morning. What started yesterday isn't over yet.", "Quick espresso, quick overview, then onward.", "The news cycle is already on its morning shift."],
+      noon:    ["Lunch break? Perfect timing for some world affairs.", "Halfway through the day — here's where things stand.", "A pinch of politics with lunch.", "Short break, long look at what actually matters right now.", "Morning's over. The world didn't pause either.", "Noon check-in: here's the state of things."],
+      after:   ["The afternoon is here, so are the headlines.", "Between meetings: a look at the bigger picture.", "Take a breath, then dive in.", "The afternoon slump is best cured with a bit of context.", "A few hours left before the day's done — and a few open questions about the world.", "Quick breath, deeper dive."],
+      evening: ["Day's done. Time to understand what actually happened today.", "The day winds down, the analysis begins.", "Things are quieter now — plenty of time for the deeper connections.", "Work's closed for the day. World politics just opened.", "Evening light, straight talk: what actually mattered today.", "The day's almost over. The main threads aren't."],
+      late:    ["The evening is yours — and a little bit of world politics too.", "Before the day ends: a look behind the scenes.", "Still up? So is diplomacy.", "The last hours of the day, for the questions that matter most.", "No TV tonight — just the state of the world, at your own pace.", "The evening is quiet. The situation stays complicated."]
     }
   };
   function greetingBucket(hour) {
@@ -222,8 +231,28 @@
   }
 
   /* ---------------- rendering: home ---------------- */
-  function storyCounts() {
-    return STORIES.filter(function (s) { return state.activeCats.has(s.theme_category); }).length;
+
+  /* Tippt `text` Zeichen für Zeichen in `el`, mit blinkendem Cursor, ruft
+     `onDone` nach dem letzten Zeichen auf. Geschwindigkeit skaliert leicht
+     mit der Textlänge, damit auch lange Sprüche nicht ewig brauchen. */
+  function typewriteText(el, text, onDone) {
+    el.textContent = "";
+    var cursor = document.createElement("span");
+    cursor.className = "type-cursor";
+    el.appendChild(cursor);
+    var speed = Math.max(14, Math.min(32, 1100 / Math.max(1, text.length)));
+    var i = 0;
+    function step() {
+      if (i < text.length) {
+        cursor.insertAdjacentText("beforebegin", text.charAt(i));
+        i++;
+        setTimeout(step, speed);
+      } else {
+        cursor.remove();
+        if (onDone) onDone();
+      }
+    }
+    step();
   }
 
   function renderPrefRow() {
@@ -231,8 +260,11 @@
     var html = "";
     Object.keys(CATEGORIES).forEach(function (key) {
       var active = state.activeCats.has(key);
+      // 55/45-Abdunklung wie bei .cat-chip: die Bauhaus-Töne (v.a. Gelb,
+      // Orange) sind kräftiger als die vorherige gedämpfte Palette, ohne
+      // das wäre weißer Text auf aktiven Chips kaum lesbar.
       html += '<button class="pref-chip' + (active ? " active" : "") + '" data-cat="' + key + '" style="' +
-        (active ? "background:var(--cat-" + key + ")" : "") + '">' + escapeHtml(catLabel(key)) + "</button>";
+        (active ? "background:color-mix(in srgb, var(--cat-" + key + ") 55%, #000 45%)" : "") + '">' + escapeHtml(catLabel(key)) + "</button>";
     });
     el.innerHTML = html;
     el.querySelectorAll(".pref-chip").forEach(function (btn) {
@@ -245,22 +277,42 @@
     });
   }
 
-  function renderGreeting() {
+  /* `onDone` läuft NACH der Tipp-Animation (nur beim allerersten Aufruf --
+     bei jedem weiteren Aufruf ist der Text schon getippt, `onDone` feuert
+     dann sofort synchron). So kann `renderHome()` Filterzeile/Grid erst
+     NACH dem Tippen einblenden lassen, ohne bei jedem Kategorie-Klick neu
+     zu tippen oder zu warten. */
+  function storyCounts() {
+    return STORIES.filter(function (s) { return state.activeCats.has(s.theme_category); }).length;
+  }
+
+  function renderGreeting(onDone) {
     document.getElementById("greetEyebrow").textContent = new Date().toLocaleDateString(
       state.lang === "de" ? "de-DE" : "en-US", { weekday: "long", day: "numeric", month: "long" }
     );
-    document.getElementById("greetTitle").textContent = pickGreeting();
     var n = storyCounts();
     document.getElementById("greetSub").textContent = state.lang === "de"
       ? n + " Storys aufbereitet, mit Historie, Akteuren und ehrlicher Markteinordnung."
       : n + " stories broken down, with history, stakeholders and honest market context.";
+    if (!state.greetingText) state.greetingText = pickGreeting();
+    var el = document.getElementById("greetTitle");
+    if (!state.greetingTyped) {
+      state.greetingTyped = true;
+      typewriteText(el, state.greetingText, onDone);
+    } else {
+      el.textContent = state.greetingText;
+      if (onDone) onDone();
+    }
   }
 
-  function cardHtml(story) {
+  function cardHtml(story, idx, animate) {
     var img = mediaTag(story.image_url, { iconType: "event", catKey: story.theme_category, cls: "card-media", alt: story.title });
     var isSaved = state.saved.has(story.id);
     var nSources = (story.article_urls || story.sources || []).length;
-    return '<div class="card" data-id="' + story.id + '" style="--cat-color: var(--cat-' + story.theme_category + ')">' +
+    var cls = "card" + (animate ? " fade-in" : "");
+    var style = "--cat-color: var(--cat-" + story.theme_category + ")" +
+      (animate ? "; animation-delay:" + Math.min((idx || 0) * 45, 420) + "ms" : "");
+    return '<div class="' + cls + '" data-id="' + story.id + '" style="' + style + '">' +
       '<div style="position:relative">' + img +
         '<span class="cat-chip">' + escapeHtml(catLabel(story.theme_category)) + '</span>' +
         '<button class="save-btn' + (isSaved ? " saved" : "") + '" data-save="' + story.id + '">' + (isSaved ? BOOKMARK_IN : BOOKMARK_OUT) + '</button>' +
@@ -273,16 +325,13 @@
   }
   function stripLinks(text) { return (text || "").replace(/\[\[([^\]]+)\]\]/g, "$1"); }
 
-  function renderHome() {
-    document.getElementById("brandLabel").textContent = t("brand");
-    renderGreeting();
-    renderPrefRow();
+  function renderStoryGridBody(animate) {
     var grid = document.getElementById("storyGrid");
     var visible = STORIES.filter(function (s) { return state.activeCats.has(s.theme_category); });
     if (!visible.length) {
       grid.innerHTML = '<div class="empty-state">' + t("noStories") + "</div>";
     } else {
-      grid.innerHTML = visible.map(cardHtml).join("");
+      grid.innerHTML = visible.map(function (s, i) { return cardHtml(s, i, animate); }).join("");
     }
     grid.querySelectorAll(".card").forEach(function (card) {
       card.addEventListener("click", function (e) {
@@ -295,6 +344,19 @@
         e.stopPropagation();
         toggleSave(btn.getAttribute("data-save"));
       });
+    });
+  }
+
+  function renderHome() {
+    document.getElementById("brandLabel").textContent = t("brand");
+    renderGreeting(function () {
+      // Filterzeile + Grid bauen sich erst NACH dem Tipp-Effekt gestaffelt
+      // auf (nur beim ersten Laden, s. `state.introGridPlayed`) -- danach
+      // (z.B. bei Kategorie-Filter-Klicks) rendert alles sofort, ohne
+      // erneute Animation.
+      renderPrefRow();
+      renderStoryGridBody(!state.introGridPlayed);
+      state.introGridPlayed = true;
     });
   }
 
