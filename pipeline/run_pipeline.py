@@ -48,8 +48,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pipeline.cluster import cluster_articles  # noqa: E402
+from pipeline.llm_cluster import llm_cluster_articles  # noqa: E402
 from pipeline.config import DEFAULT_CONFIG, FULL_DEPTH_CONFIG, LITE_SCALE_CONFIG, PipelineConfig  # noqa: E402
-from pipeline.extract_article import fetch_and_extract  # noqa: E402
+from pipeline.extract_article import fetch_and_extract_with_image  # noqa: E402
 from pipeline.fetch_feeds import fetch_all  # noqa: E402
 from pipeline.synthesize_story import build_prompt, synthesize_with_claude  # noqa: E402
 
@@ -75,6 +76,59 @@ def dedupe_articles(articles: list[dict], title_similarity: float = 0.85) -> lis
         if not is_dupe:
             kept.append(a)
     return kept
+
+
+def _load_existing_stories() -> list[dict]:
+    """Laedt bereits gespeicherte Storys aus data/stories.json, falls
+    vorhanden -- Grundlage fuer die Story-AKKUMULATION (Nutzerwunsch
+    23.08.2026: alte Storys bleiben auf der Website sichtbar statt bei
+    jedem Lauf ueberschrieben zu werden). Leere Liste bei fehlender/
+    kaputter Datei, statt den Lauf abzubrechen."""
+    path = DATA_DIR / "stories.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        print(f"[warn] data/stories.json nicht lesbar ({exc}), starte mit leerer Historie.", file=sys.stderr)
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _merge_stories(
+    new_stories: list[dict],
+    existing_stories: list[dict],
+    title_similarity: float = 0.82,
+    max_total: int | None = None,
+) -> list[dict]:
+    """Stellt `new_stories` VOR `existing_stories` (neueste zuerst). Eine
+    bestehende Story mit sehr aehnlichem Titel wie eine NEUE Story wird
+    dabei aus `existing_stories` entfernt -- die neue, frisch synthetisierte
+    Version ERSETZT die alte, statt dass dasselbe Thema doppelt auftaucht,
+    wenn es ueber mehrere 6h-Laeufe hinweg in den Schlagzeilen bleibt.
+    `max_total` deckelt (falls gesetzt) die Gesamtzahl, aelteste zuerst
+    entfernt -- verhindert unbegrenztes Wachstum von data/stories.json."""
+    def is_dupe(existing: dict, fresh: dict) -> bool:
+        return SequenceMatcher(
+            None,
+            (existing.get("title") or "").lower(),
+            (fresh.get("title") or "").lower(),
+        ).ratio() > title_similarity
+
+    kept_existing = [
+        e for e in existing_stories
+        if not any(is_dupe(e, n) for n in new_stories)
+    ]
+    merged = new_stories + kept_existing
+    if max_total is not None and len(merged) > max_total:
+        dropped = len(merged) - max_total
+        print(
+            f"[info] {dropped} älteste Storys über dem Limit (--max-total-stories "
+            f"{max_total}) entfernt.",
+            file=sys.stderr,
+        )
+        merged = merged[:max_total]
+    return merged
 
 
 def _synthesize_one(cluster: list[dict], config: PipelineConfig) -> dict:
@@ -133,17 +187,27 @@ def run(
             file=sys.stderr,
         )
         with ThreadPoolExecutor(max_workers=max(1, config.fetch_concurrency)) as pool:
-            texts = list(pool.map(lambda a: fetch_and_extract(a["link"]) or "", deduped))
-        for a, text in zip(deduped, texts):
+            results = list(pool.map(lambda a: fetch_and_extract_with_image(a["link"]), deduped))
+        for a, (text, og_image) in zip(deduped, results):
             a["text"] = text or a.get("summary", "")
             a["combined_text"] = f"{a['title']} {a['text'][:500]}"
+            # og:image ist das von der Publikation selbst hinterlegte
+            # Vorschaubild (siehe extract_article.py::extract_og_image) --
+            # muss hier auf dem Artikel landen UND (s. synthesize_story.py
+            # ::_build_prompt_text) in den Prompt, sonst hat das Modell
+            # buchstaeblich keine echte Bild-URL zur Auswahl und liefert
+            # (korrekterweise, gemaess seiner Anweisung nie zu erfinden)
+            # immer null zurueck.
+            a["og_image"] = og_image
     else:
         for a in deduped:
             a["text"] = a.get("summary", "")
             a["combined_text"] = f"{a['title']} {a['text']}"
 
-    print("[4/5] Clustering into storylines...", file=sys.stderr)
-    clusters = cluster_articles(deduped, config=config)
+    print("[4/5] Clustering into storylines (LLM-basiert, Fallback TF-IDF)...", file=sys.stderr)
+    clusters = llm_cluster_articles(deduped, config=config)
+    if clusters is None:
+        clusters = cluster_articles(deduped, config=config)
     # nur Cluster aus >= min_sources_for_story verschiedenen Quellen sind
     # "echte" (quellenübergreifende) Storys
     multi_source_clusters = [
@@ -171,6 +235,13 @@ def run(
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "articles_enriched.json").write_text(
         json.dumps(deduped, indent=2, ensure_ascii=False)
+    )
+
+    existing_stories = _load_existing_stories()
+    print(
+        f"[info] {len(existing_stories)} bestehende Storys geladen -- "
+        f"werden mit den neuen zusammengeführt (nicht überschrieben).",
+        file=sys.stderr,
     )
 
     stories: list[dict | None] = [None] * n
@@ -201,18 +272,22 @@ def run(
                 title = multi_source_clusters[i][0].get("title", "?")
                 print(f"[error] Story '{title}' fehlgeschlagen: {exc}", file=sys.stderr)
             print(f"    ... {done}/{n} Storys verarbeitet", file=sys.stderr)
+            new_so_far = [s for s in stories if s is not None]
+            merged_so_far = _merge_stories(new_so_far, existing_stories, max_total=config.max_total_stories)
             (DATA_DIR / "stories.json").write_text(
-                json.dumps([s for s in stories if s is not None], indent=2, ensure_ascii=False)
+                json.dumps(merged_so_far, indent=2, ensure_ascii=False)
             )
 
     stories = [s for s in stories if s is not None]
+    merged = _merge_stories(stories, existing_stories, max_total=config.max_total_stories)
+    (DATA_DIR / "stories.json").write_text(json.dumps(merged, indent=2, ensure_ascii=False))
 
     elapsed = time.time() - t_start
     total_in = sum(s.get("_pipeline_meta", {}).get("input_tokens", 0) for s in stories)
     total_out = sum(s.get("_pipeline_meta", {}).get("output_tokens", 0) for s in stories)
     print(
-        f"Done in {elapsed:.1f}s. {len(stories)} stories written "
-        f"({errors} failed) -> data/stories.json",
+        f"Done in {elapsed:.1f}s. {len(stories)} new stories written "
+        f"({errors} failed), {len(merged)} insgesamt akkumuliert -> data/stories.json",
         file=sys.stderr,
     )
     if total_in or total_out:
@@ -235,6 +310,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "lite: noch schlanker für große Story-Zahlen, full: volle Formel inkl. Web-Recherche).",
     )
     p.add_argument("--max-stories", type=int, default=None, help="Deckelt Anzahl synthetisierter Storys.")
+    p.add_argument(
+        "--max-total-stories", type=int, default=None,
+        help="Deckelt die GESAMTZAHL akkumulierter Storys in data/stories.json "
+        "(älteste fliegen zuerst raus). -1 für kein Limit.",
+    )
     p.add_argument("--max-articles-per-source", type=int, default=None)
     p.add_argument("--concurrency", type=int, default=None, help="Parallele API-Calls.")
     p.add_argument("--fetch-concurrency", type=int, default=None, help="Parallele Volltext-Fetches.")
@@ -249,6 +329,8 @@ def _config_from_args(args: argparse.Namespace) -> PipelineConfig:
     overrides = {}
     if args.max_stories is not None:
         overrides["max_stories_per_run"] = args.max_stories
+    if args.max_total_stories is not None:
+        overrides["max_total_stories"] = None if args.max_total_stories < 0 else args.max_total_stories
     if args.max_articles_per_source is not None:
         overrides["max_articles_per_source"] = args.max_articles_per_source
     if args.concurrency is not None:
