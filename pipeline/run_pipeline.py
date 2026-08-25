@@ -51,6 +51,7 @@ from pipeline.cluster import cluster_articles  # noqa: E402
 from pipeline.llm_cluster import llm_cluster_articles  # noqa: E402
 from pipeline.config import DEFAULT_CONFIG, FULL_DEPTH_CONFIG, LITE_SCALE_CONFIG, PipelineConfig  # noqa: E402
 from pipeline.extract_article import fetch_and_extract_with_image  # noqa: E402
+from pipeline.enrich_entity_images import enrich_entity_images  # noqa: E402
 from pipeline.fetch_feeds import fetch_all  # noqa: E402
 from pipeline.synthesize_story import build_prompt, synthesize_with_claude  # noqa: E402
 
@@ -266,7 +267,17 @@ def run(
             i = future_to_idx[future]
             done += 1
             try:
-                stories[i] = future.result()
+                story = future.result()
+                # Kostenlose Bildanreicherung ueber Wikipedia fuer
+                # Personen/Organisationen ohne LLM-gefundenes Bild (s.
+                # enrich_entity_images.py-Docstring). Laeuft NACH der
+                # Synthese, ist reines HTTP, kein zusaetzlicher API-Call --
+                # ein Fehlschlag hier darf die Story nicht verwerfen.
+                try:
+                    enrich_entity_images(story)
+                except Exception as img_exc:  # noqa: BLE001
+                    print(f"    [warn] Bildanreicherung fehlgeschlagen: {img_exc}", file=sys.stderr)
+                stories[i] = story
             except Exception as exc:  # noqa: BLE001 - ein Story-Fehler darf den Lauf nicht stoppen
                 errors += 1
                 title = multi_source_clusters[i][0].get("title", "?")
