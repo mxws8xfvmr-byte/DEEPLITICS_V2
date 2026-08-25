@@ -25,6 +25,7 @@
       noTheory: "Keine spezifische politikwissenschaftliche Theorie für diese Story identifiziert — bewusst leer statt erfunden.",
       quotes: "Zitate", sourcesHead: "Quellen", primarySources: "Primärquellen",
       cuiBono: "Wer profitiert?", noMarket: "Keine belastbare Marktkorrelation gefunden — dieses Feld bleibt bewusst leer statt eine erfunden zu zeigen.",
+      marketQualitative: "Einschätzung aus Allgemeinwissen, keine live abgefragten Kursdaten.",
       wikipedia: "Wikipedia-Artikel öffnen", keyFigure: "Zentrale Figur dieser Story",
       profile: "Profil", newAvatar: "Neuer Avatar", language: "Sprache", appearance: "Darstellung",
       dark: "Dunkel", light: "Hell", contentPrefs: "Inhaltspräferenzen",
@@ -45,6 +46,7 @@
       noTheory: "No specific political-science theory identified for this story — deliberately left empty rather than invented.",
       quotes: "Quotes", sourcesHead: "Sources", primarySources: "Primary sources",
       cuiBono: "Who benefits?", noMarket: "No reliable market correlation found — left honestly empty instead of inventing one.",
+      marketQualitative: "Assessment from general knowledge, not live market data.",
       wikipedia: "Open Wikipedia article", keyFigure: "Key figure in this story",
       profile: "Profile", newAvatar: "New avatar", language: "Language", appearance: "Appearance",
       dark: "Dark", light: "Light", contentPrefs: "Content preferences",
@@ -491,8 +493,27 @@
 
   function marketHtml(story) {
     var mc = story.market_correlation;
-    if (!mc || !mc.has_correlation || !mc.series || !mc.series.length) {
+    // Kein Feld oder das Modell hat ehrlich KEINEN Zusammenhang gefunden
+    // (has_correlation=false) -- das ist ein vollwertiges Ergebnis, kein
+    // Fehlerzustand, s. noMarket-Text.
+    if (!mc || !mc.has_correlation) {
       return '<div class="market-empty">' + t("noMarket") + (mc && mc.explanation ? '<div style="margin-top:10px;font-size:13.5px;">' + escapeHtml(mc.explanation) + '</div>' : '') + '</div>';
+    }
+    // has_correlation=true, aber KEINE Kurve/Datenpunkte (Lite-Modus --
+    // qualitative Einschaetzung aus Allgemeinwissen statt Live-Recherche,
+    // s. synthesize_story.py::STORY_JSON_SCHEMA_HINT_MARKET_LITE). Vorher
+    // landete das faelschlich im "keine Korrelation gefunden"-Zweig oben,
+    // obwohl das Modell durchaus einen Zusammenhang sieht (Nutzer-Feedback
+    // 24.08.2026: "keine korrelation bei einem riesigen handelsstreit mit
+    // 50% Zoellen? I doubt it."). Eigener Zweig: Text prominent, klar als
+    // Einschaetzung statt Live-Daten gekennzeichnet, kein Chart (den gibt's
+    // erst mit echten Kurszahlen aus research_depth="full").
+    if (!mc.series || !mc.series.length) {
+      return '<div class="chart-card">' +
+        (mc.explanation ? '<div class="chart-sub">' + escapeHtml(mc.explanation) + '</div>' : '') +
+        '<div class="market-note-badge">' + t("marketQualitative") + '</div>' +
+        (mc.note ? '<div class="chart-note">' + escapeHtml(mc.note) + '</div>' : '') +
+      '</div>';
     }
     var legend = mc.series.length > 1 ? '<div class="legend-row">' + mc.series.map(function (s, i) {
       return '<div class="legend-item"><span class="legend-swatch" style="background:' + (i === 0 ? "var(--cat-color)" : "var(--ink-muted)") + '"></span>' + escapeHtml(s.label) + '</div>';
@@ -637,6 +658,13 @@
     });
     drawMarketChart(story);
     wireSwipe(document.getElementById("tabTrack"));
+    syncTabHeight();
+    // Bilder (Entity-Avatare in Stakeholders etc.) koennen den Pane
+    // nachtraeglich hoeher machen, sobald sie geladen sind -- Hoehe dann
+    // nochmal neu abgleichen.
+    document.querySelectorAll("#tabTrack img").forEach(function (img) {
+      if (!img.complete) img.addEventListener("load", syncTabHeight, { once: true });
+    });
   }
 
   var TAB_COUNT = 5;
@@ -647,6 +675,24 @@
     });
     var track = document.getElementById("tabTrack");
     if (track) track.style.transform = "translateX(-" + (i * (100 / TAB_COUNT)) + "%)";
+    syncTabHeight();
+  }
+
+  /* Der Tab-Carousel (.tab-viewport > .tab-track > 5x .tab-pane) legt alle
+     5 Tabs nebeneinander (display:flex) und verschiebt per translateX --
+     OHNE das hier wuerde .tab-viewport per Flexbox-Zeilenhoehe automatisch
+     so hoch wie der HOECHSTE der 5 Panes (meist "Historien" mit langen
+     Zeitleisten), auch wenn z.B. "Uebersicht" viel kuerzer ist. Das war die
+     grosse Luecke zwischen Uebersicht-Inhalt und der Zitate-Sektion danach
+     (Nutzer-Feedback 24.08.2026). Fix: Hoehe des Viewports explizit auf die
+     Hoehe des GERADE aktiven Panes setzen, mit CSS-Transition fuers
+     Umschalten (s. .tab-viewport in index.template.html). */
+  function syncTabHeight() {
+    var track = document.getElementById("tabTrack");
+    if (!track) return;
+    var active = track.children[state.activeTab];
+    var viewport = track.parentElement;
+    if (active && viewport) viewport.style.height = active.scrollHeight + "px";
   }
 
   function wireSwipe(track) {
@@ -784,9 +830,9 @@
       '<div class="seg-control"><button class="seg-btn' + (state.lang==="de"?" active":"") + '" data-lang="de">Deutsch</button>' +
       '<button class="seg-btn' + (state.lang==="en"?" active":"") + '" data-lang="en">English</button></div>' +
       (state.lang === "en" ? '<div style="font-size:11.5px;color:var(--ink-muted);margin-top:8px;">' + t("langNote") + '</div>' : '') + '</div>' +
-      '<div class="profile-section"><div class="profile-label">' + t("appearance") + '</div>' +
-      '<div class="seg-control"><button class="seg-btn' + (state.theme==="dark"?" active":"") + '" data-theme="dark">' + t("dark") + '</button>' +
-      '<button class="seg-btn' + (state.theme==="light"?" active":"") + '" data-theme="light">' + t("light") + '</button></div></div>' +
+      /* Kein Hell-Modus-Umschalter mehr (Nutzer-Feedback 24.08.2026:
+         "verbiete den light mode") -- state.theme bleibt fest "dark", s.
+         state-Init oben und init(). */
       '<div class="profile-section"><div class="profile-label">' + t("contentPrefs") + '</div>' +
       Object.keys(CATEGORIES).map(function (key) {
         return '<label class="check-row"><input type="checkbox" data-catcheck="' + key + '"' + (state.activeCats.has(key) ? " checked" : "") + '>' + escapeHtml(catLabel(key)) + '</label>';
@@ -800,7 +846,6 @@
 
     document.getElementById("btnShuffleAvatar").onclick = function () { state.avatarSeed = Math.random(); updateAvatarButtons(); renderProfilePanel(); };
     panel.querySelectorAll("[data-lang]").forEach(function (b) { b.onclick = function () { state.lang = b.getAttribute("data-lang"); fullRerender(); }; });
-    panel.querySelectorAll("[data-theme]").forEach(function (b) { b.onclick = function () { setTheme(b.getAttribute("data-theme")); renderProfilePanel(); }; });
     panel.querySelectorAll("[data-catcheck]").forEach(function (cb) {
       cb.onchange = function () {
         var key = cb.getAttribute("data-catcheck");
@@ -822,10 +867,8 @@
     document.getElementById("btnProfile").innerHTML = avatarSVG(state.avatarSeed, 36);
   }
 
-  function setTheme(mode) {
-    state.theme = mode;
-    document.documentElement.setAttribute("data-theme", mode);
-  }
+  /* Kein setTheme()/Hell-Modus mehr -- data-theme wird nur noch einmal in
+     init() fest auf "dark" gesetzt, s. Kommentar in renderProfilePanel(). */
 
   var profileOpen = false;
   function toggleProfile() {
@@ -902,6 +945,7 @@
     document.getElementById("entityScrim").onclick = closeEntityModal;
     renderLastUpdated();
     renderHome();
+    window.addEventListener("resize", syncTabHeight);
   }
 
   document.addEventListener("DOMContentLoaded", init);
