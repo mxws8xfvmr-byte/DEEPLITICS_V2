@@ -24,16 +24,25 @@ zu viele Tokens/Rechenzeit braucht":
    für Diversität statt zufälliger Reihenfolge) und kappt jeden Artikeltext
    auf `config.max_chars_per_article`. Ein Cluster mit 40 Artikeln kostet
    dadurch nicht 10x so viel wie einer mit 4.
-3. ECHTE Web-Recherche statt einer bloßen Textanweisung: Punkte 7
-   (Primärquellen) und 9 (Marktkorrelation) verlangen, dass das Modell
-   ÜBER das mitgelieferte Quellmaterial hinaus recherchiert. Ohne ein
-   echtes Such-Tool wäre das eine Einladung zu Halluzination, also bindet
-   `synthesize_with_claude()` bei `research_depth="full"` das
-   Anthropic-Server-Tool `web_search` ein (gedeckelt über
-   `config.web_search_max_uses`). Bei `research_depth="lite"` werden diese
-   beiden Punkte NICHT ins Prompt aufgenommen und die Felder serverseitig
-   fix auf leer/`null` gesetzt (siehe `_finalize_story_dict`), damit auch
-   ohne Recherche-Tool niemals geraten/erfunden wird.
+3. ECHTE Web-Recherche statt einer bloßen Textanweisung: Punkt 7
+   (Primärquellen) verlangt, dass das Modell ÜBER das mitgelieferte
+   Quellmaterial hinaus recherchiert. Ohne ein echtes Such-Tool wäre das
+   eine Einladung zu Halluzination, also bindet `synthesize_with_claude()`
+   bei `research_depth="full"` das Anthropic-Server-Tool `web_search` ein
+   (gedeckelt über `config.web_search_max_uses`). Bei `research_depth=
+   "lite"` wird dieser Punkt NICHT ins Prompt aufgenommen und
+   `primary_sources` serverseitig fix auf leer gesetzt (siehe
+   `_finalize_story_dict`), das braucht tool-verifizierte URLs, die ohne
+   Such-Tool nicht verlässlich sind.
+   `market_correlation` (Punkt 9/8) ist ANDERS: hier ist auch OHNE
+   Recherche-Tool eine ehrliche QUALITATIVE Einschätzung aus dem
+   Modell-Allgemeinwissen möglich und erwünscht (Nutzer-Feedback
+   24.08.2026: "sei sensibler bei Marktkorrelation" -- vorher fehlte das
+   Feld in "lite" komplett aus dem Prompt, das Modell wusste nicht mal,
+   dass es existiert). Konkrete Kurszahlen/`series` bleiben aber auch hier
+   tabu und werden serverseitig hart entfernt, falls das Modell doch
+   welche liefert, s. `STORY_JSON_SCHEMA_HINT_MARKET_LITE` und
+   `_finalize_story_dict`.
 4. Response-Parsing ist robust gegenüber Tool-Use-Antworten (mehrere
    Content-Blöcke) und hat eine Selbstkorrektur-Runde
    (`config.max_json_retries`), falls die letzte Text-Antwort kein valides
@@ -199,6 +208,31 @@ STORY_JSON_SCHEMA_HINT_RESEARCH = """
 
 """
 
+# Leichtgewichtige Markt-Einschätzung OHNE Web-Recherche-Tool (Nutzer-
+# Feedback 24.08.2026: "sei sensibler bei Marktkorrelation" -- vorher wurde
+# dieses Feld in "lite" komplett aus dem Prompt entfernt, das Modell wusste
+# nicht mal, dass es existiert, DESHALB gab es nie eine Korrelation, nicht
+# weil das Modell geprüft und keine gefunden hätte. Jetzt: qualitative
+# Einschätzung aus Modellwissen erlaubt, aber STRIKT ohne `series`/
+# Kurszahlen (die sind ohne Tool nicht verifizierbar -- `_finalize_story_dict`
+# entfernt eine `series` in diesem Modus notfalls hart, als zweite
+# Absicherung gegen Halluzination zusätzlich zur Prompt-Anweisung).
+STORY_JSON_SCHEMA_HINT_MARKET_LITE = """
+  "market_correlation": {
+    "has_correlation": true,
+    "explanation": "2-4 Sätze AUS DEINEM ALLGEMEINWISSEN (keine Live-Recherche): welche Märkte/Anlageklassen bei diesem Themenfeld typischerweise reagieren und warum (z.B. bei neuen Zöllen: betroffene Aktienindizes/Branchen, Wechselkurse, Rohstoffe; bei Sanktionen: Energiepreise, betroffene Währungen; bei Zentralbankentscheidungen: Anleiherenditen). Sei GROSSZÜGIG beim Erkennen einer plausiblen Korrelation -- ein großer Handelskonflikt, neue Zölle, Sanktionen, ein Kriegsausbruch oder eine Zentralbankentscheidung haben so gut wie IMMER einen bekannten, plausiblen Marktbezug, den du aus Allgemeinwissen benennen kannst, auch ohne exakte tagesaktuelle Zahlen.",
+    "note": "kurzer Hinweis, dass dies eine Einschätzung aus Allgemeinwissen ist, keine live abgefragten Kursdaten"
+  },
+  // has_correlation=false ist ein akzeptables Ergebnis, aber NUR wenn
+  // wirklich kein plausibler Marktbezug erkennbar ist (z.B. ein rein
+  // innenpolitisches Verfahrensthema ohne wirtschaftliche Dimension) --
+  // nicht aus reiner Vorsicht pauschal auf false setzen. NIEMALS `series`,
+  // Kurszahlen oder Datenpunkte in diesem Feld angeben, das ist in diesem
+  // Modus ohne Recherche-Tool nicht seriös möglich und wird serverseitig
+  // ohnehin entfernt.
+
+"""
+
 ANALYTICAL_INSTRUCTIONS_BASE = """\
 Du bist Teil von Deeplitics, einem System, das politische Nachrichten NICHT
 nur zusammenfasst, sondern ihre tiefere Struktur sichtbar macht. Wende bei
@@ -284,10 +318,19 @@ ANALYTICAL_INSTRUCTIONS_RESEARCH_POINTS = """\
 ANALYTICAL_INSTRUCTIONS_LITE_NOTE = """\
 7. Diese Story wird OHNE Web-Recherche-Tool erstellt (Kosten-/
    Zeit-optimierter Modus). Fülle `political_theory`, wenn ein Konzept
-   wirklich passt, sonst `null`. `primary_sources` und `market_correlation`
-   werden für diesen Modus automatisch leer/null gesetzt, dazu MUSST du
-   nichts recherchieren oder ausdenken, lass diese Felder in deiner Antwort
-   einfach weg oder setze sie auf `[]`/`null`.
+   wirklich passt, sonst `null`. `primary_sources` bleibt in diesem Modus
+   leer (`[]`), dazu MUSST du nichts recherchieren oder ausdenken -- das
+   braucht tool-verifizierte URLs, die hier nicht verfügbar sind, lass das
+   Feld einfach weg oder setze es auf `[]`.
+8. `market_correlation` FÜLLE trotzdem aus, aus deinem Allgemeinwissen
+   (keine Recherche nötig, siehe Feld-Beschreibung im Schema oben für das
+   genaue Format): ist ein plausibler Zusammenhang mit Finanzmärkten
+   erkennbar (Aktien, Währungen, Rohstoffe, Anleihen)? Ein großer
+   Handelsstreit mit hohen Zöllen, Sanktionen, ein Kriegsausbruch oder eine
+   Zentralbankentscheidung haben praktisch immer einen bekannten
+   Marktbezug -- benenne ihn qualitativ, auch ohne Recherche-Tool. NIEMALS
+   konkrete Kurszahlen oder Datenpunkte erfinden, das gehört nicht in
+   dieses Feld in diesem Modus.
 """
 
 
@@ -311,7 +354,12 @@ def _build_schema_hint(config: PipelineConfig) -> str:
         return STORY_JSON_SCHEMA_HINT_BASE.replace(
             "{RESEARCH_FIELDS}", STORY_JSON_SCHEMA_HINT_RESEARCH
         )
-    return STORY_JSON_SCHEMA_HINT_BASE.replace("{RESEARCH_FIELDS}", "")
+    # "lite": keine `primary_sources` (brauchen ein Such-Tool), aber eine
+    # leichtgewichtige, qualitative `market_correlation` bleibt im Schema,
+    # s. STORY_JSON_SCHEMA_HINT_MARKET_LITE-Docstring.
+    return STORY_JSON_SCHEMA_HINT_BASE.replace(
+        "{RESEARCH_FIELDS}", STORY_JSON_SCHEMA_HINT_MARKET_LITE
+    )
 
 
 def select_representative_articles(
@@ -652,13 +700,30 @@ def _finalize_story_dict(
         )
         data["theme_category"] = "conflict"
 
-    # In "lite" wurden diese Felder gar nicht ins Prompt aufgenommen, hier
-    # HART auf leer/null erzwingen statt dem Modell zu vertrauen, dass es
-    # sie weggelassen hat, das ist die eigentliche Garantie gegen
-    # Halluzination ohne Such-Tool.
+    # `primary_sources` braucht tool-verifizierte URLs -- in "lite" HART auf
+    # leer erzwingen statt dem Modell zu vertrauen, das ist die eigentliche
+    # Garantie gegen Halluzination ohne Such-Tool.
+    # `market_correlation` bleibt in "lite" dagegen erhalten (Nutzer-
+    # Feedback 24.08.2026: "sei sensibler bei Marktkorrelation" -- vorher
+    # wurde es hier komplett genullt, obwohl das Modell inzwischen eine
+    # ehrliche QUALITATIVE Einschätzung liefern darf, s.
+    # STORY_JSON_SCHEMA_HINT_MARKET_LITE). Eine `series` (konkrete
+    # Kurszahlen) ist in diesem Modus aber NIE verifiziert -- die wird hier
+    # als zweite Absicherung zusätzlich zur Prompt-Anweisung hart entfernt,
+    # falls das Modell trotzdem eine geliefert hat.
     if config.research_depth != "full" or not config.enable_web_search:
         data["primary_sources"] = []
-        data["market_correlation"] = None
+        mc = data.get("market_correlation")
+        if isinstance(mc, dict):
+            mc.pop("series", None)
+            mc["verified_live"] = False
+            data["market_correlation"] = mc
+        else:
+            data["market_correlation"] = None
+    else:
+        mc = data.get("market_correlation")
+        if isinstance(mc, dict):
+            mc["verified_live"] = True
 
     if resp is not None and getattr(resp, "usage", None) is not None:
         data["_pipeline_meta"] = {
