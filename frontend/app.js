@@ -37,6 +37,7 @@
       profitsFrom: "Profitiert davon", losesFrom: "Verliert dabei / ist dagegen",
       noProfiteers: "Kein eindeutig benannter Profiteur in dieser Story.",
       noLosers: "Kein eindeutig benannter Verlierer in dieser Story.",
+      counterLabel: "Gegenperspektive",
       standLabel: function (d) { return "Stand: " + d; }
     },
     en: {
@@ -58,6 +59,7 @@
       profitsFrom: "Benefits from this", losesFrom: "Loses out / is against",
       noProfiteers: "No clearly named beneficiary in this story.",
       noLosers: "No clearly named loser in this story.",
+      counterLabel: "Counter-view",
       standLabel: function (d) { return "As of: " + d; }
     }
   };
@@ -83,6 +85,22 @@
 
   function t(key) { return STR[state.lang][key]; }
   function catLabel(key) { var c = CATEGORIES[key]; return c ? c[state.lang] : key; }
+
+  /* Kleine Rubriken-Icons (Nutzer-Feedback 27.08.2026: "fuege fuer die
+     einzelnen Rubriken kleine Logos hinzu, um das Ganze anschaulicher zu
+     machen"). Gleicher Stil wie die uebrigen Inline-Icons der App (24x24
+     viewBox, stroke="currentColor", abgerundete Linien, s. CLOSE_ICON/
+     BACK_ICON weiter unten) -- bewusst sehr reduziert (max. 2 Pfade), damit
+     sie auch bei 12-16px auf einem Chip noch klar lesbar bleiben. */
+  var CATEGORY_ICONS = {
+    security: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 3 5 5.5v5c0 4.8 3 8.1 7 9.3 4-1.2 7-4.5 7-9.3v-5L12 3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+    diplomacy: '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.6"/><ellipse cx="12" cy="12" rx="3.6" ry="8.2" stroke="currentColor" stroke-width="1.4"/><path d="M3.8 12h16.4" stroke="currentColor" stroke-width="1.4"/></svg>',
+    trade: '<svg viewBox="0 0 24 24" fill="none"><path d="M4 17 9.5 11.3 13 14.8 20 7.4" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 7.4H20v5.5" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    rights: '<svg viewBox="0 0 24 24" fill="none"><path d="M12 4v16M6 20h12M4 8h16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="6.2" cy="11.6" r="2.3" stroke="currentColor" stroke-width="1.4"/><circle cx="17.8" cy="11.6" r="2.3" stroke="currentColor" stroke-width="1.4"/></svg>',
+    conflict: '<svg viewBox="0 0 24 24" fill="none"><path d="M4.5 4.5l15 15M19.5 4.5l-15 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M9.7 9.7 8.2 8.2M14.3 9.7l1.5-1.5M9.7 14.3l-1.5 1.5M14.3 14.3l1.5 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+    surveillance: '<svg viewBox="0 0 24 24" fill="none"><path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.7" stroke="currentColor" stroke-width="1.5"/></svg>'
+  };
+  function catIcon(key) { return CATEGORY_ICONS[key] || ""; }
 
   /* ---------------- utils ---------------- */
   function escapeHtml(s) {
@@ -257,23 +275,46 @@
     step();
   }
 
+  /* Rubriken-Filterzeile auf der Startseite (Nutzer-Feedback 27.08.2026:
+     "wenn man auf die Rubriken klickt, sollen die Nachrichten dieser
+     Rubrik nicht ausgeblendet werden, sondern hervorgehoben werden! wenn
+     ich auf Sicherheit klicke, sollen nur noch Sicherheitsnachrichten
+     angezeigt werden"). Vorher: ein Klick auf eine noch aktive Rubrik
+     ENTFERNTE genau diese aus der Auswahl -- ein Klick auf "Sicherheit"
+     blendete Sicherheit also aus, das Gegenteil von "nur noch
+     Sicherheitsnachrichten". Jetzt: exklusive Auswahl -- ein Klick auf
+     eine Rubrik zeigt NUR NOCH diese (der Chip selbst wird hervorgehoben,
+     nicht ausgeblendet), ein zweiter Klick auf denselben Chip oder auf
+     "Alle Themen" setzt wieder auf alle zurueck. Das separate
+     Mehrfachauswahl-Menü im Profil (data-catcheck, Inhaltspräferenzen)
+     bleibt unveraendert fuer alle, die mehrere Rubriken kombinieren wollen. */
   function renderPrefRow() {
     var el = document.getElementById("prefRow");
-    var html = "";
-    Object.keys(CATEGORIES).forEach(function (key) {
-      var active = state.activeCats.has(key);
-      // 55/45-Abdunklung wie bei .cat-chip: die Bauhaus-Töne (v.a. Gelb,
-      // Orange) sind kräftiger als die vorherige gedämpfte Palette, ohne
-      // das wäre weißer Text auf aktiven Chips kaum lesbar.
+    var allKeys = Object.keys(CATEGORIES);
+    var allActive = state.activeCats.size === allKeys.length;
+    var html = '<button class="pref-chip all' + (allActive ? " active" : "") + '" data-cat="__all__" style="' +
+      (allActive ? "background:var(--accent);color:#141210" : "") + '">' + escapeHtml(t("allTopics")) + "</button>";
+    allKeys.forEach(function (key) {
+      var active = !allActive && state.activeCats.has(key);
+      // 55/45-Abdunklung wie bei .cat-chip: die Kategorie-Töne sind
+      // kräftiger als der Rest der Palette, ohne das wäre weißer Text auf
+      // aktiven Chips kaum lesbar.
       html += '<button class="pref-chip' + (active ? " active" : "") + '" data-cat="' + key + '" style="' +
-        (active ? "background:color-mix(in srgb, var(--cat-" + key + ") 55%, #000 45%)" : "") + '">' + escapeHtml(catLabel(key)) + "</button>";
+        (active ? "background:color-mix(in srgb, var(--cat-" + key + ") 55%, #000 45%)" : "") + '">' +
+        catIcon(key) + escapeHtml(catLabel(key)) + "</button>";
     });
     el.innerHTML = html;
     el.querySelectorAll(".pref-chip").forEach(function (btn) {
       btn.onclick = function () {
         var key = btn.getAttribute("data-cat");
-        if (state.activeCats.has(key)) { if (state.activeCats.size > 1) state.activeCats.delete(key); }
-        else state.activeCats.add(key);
+        if (key === "__all__") {
+          state.activeCats = new Set(allKeys);
+        } else if (state.activeCats.size === 1 && state.activeCats.has(key)) {
+          // Erneuter Klick auf die schon exklusiv aktive Rubrik: zurueck zu "alle".
+          state.activeCats = new Set(allKeys);
+        } else {
+          state.activeCats = new Set([key]);
+        }
         renderHome();
       };
     });
@@ -316,7 +357,7 @@
       (animate ? "; animation-delay:" + Math.min((idx || 0) * 45, 420) + "ms" : "");
     return '<div class="' + cls + '" data-id="' + story.id + '" style="' + style + '">' +
       '<div style="position:relative">' + img +
-        '<span class="cat-chip">' + escapeHtml(catLabel(story.theme_category)) + '</span>' +
+        '<span class="cat-chip">' + catIcon(story.theme_category) + escapeHtml(catLabel(story.theme_category)) + '</span>' +
         '<button class="save-btn' + (isSaved ? " saved" : "") + '" data-save="' + story.id + '">' + (isSaved ? BOOKMARK_IN : BOOKMARK_OUT) + '</button>' +
       '</div>' +
       '<div class="card-body">' +
@@ -407,7 +448,7 @@
       '</div>' +
       '<div style="position:relative">' + hero + '</div>' +
       '<div class="detail-content">' +
-        '<div class="detail-eyebrow"><span class="detail-cat-chip">' + escapeHtml(catLabel(cat)) + '</span>' +
+        '<div class="detail-eyebrow"><span class="detail-cat-chip">' + catIcon(cat) + escapeHtml(catLabel(cat)) + '</span>' +
           '<span>' + t("sources")((story.article_urls||story.sources||[]).length) + '</span></div>' +
         '<h1 class="detail-title">' + escapeHtml(story.title) + '</h1>' +
         '<p class="detail-dek">' + linkify(story.one_line, story) + '</p>' +
@@ -460,22 +501,34 @@
   var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   var MINUS_ICON = '<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M8 12h8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 
+  /* Pro/Con-Karte je Akteur. `item.counter` (Nutzer-Feedback 27.08.2026:
+     "diskutiere jeweils die Sinnhaftigkeit der Massnahmen eines
+     Politikers, bringe immer Perspektive und Gegenperspektive ein") ist
+     die Gegenperspektive zu `item.reason` -- neu vom Pipeline-Schema
+     geliefert (s. synthesize_story.py), bei aelteren, vor diesem Update
+     erzeugten Storys noch nicht vorhanden. Daher optional rendern statt
+     die Karte kaputt zu machen, ganz im Stil des Projekts: leer lassen
+     statt etwas zu erfinden. */
   function stakeCardHtml(item, side, story) {
     var ent = findEntity(story, item.entity);
     var img = mediaTag(ent && ent.image_url, { iconType: ent ? ent.type : "concept", catKey: story.theme_category, cls: "stake-avatar", alt: item.entity });
     return '<button class="stake-card ' + side + '" data-entity-open="' + escapeHtml(item.entity) + '">' + img +
       '<div class="stake-body"><div class="stake-name">' + escapeHtml(item.entity) + '</div>' +
-      '<div class="stake-reason">' + escapeHtml(item.reason || "") + '</div></div></button>';
+      '<div class="stake-reason">' + escapeHtml(item.reason || "") + '</div>' +
+      (item.counter ? '<div class="stake-counter"><span class="stake-counter-label">' + t("counterLabel") + '</span><span>' + escapeHtml(item.counter) + '</span></div>' : '') +
+      '</div></button>';
   }
 
   function stakeholdersHtml(story) {
     var sh = story.stakeholders;
     if (!sh || (!(sh.pro||[]).length && !(sh.con||[]).length)) return '<div class="market-empty">—</div>';
     var pro = sh.pro || [], con = sh.con || [];
-    var html = '<div class="stake-section"><div class="stake-heading pro">' + CHECK_ICON + t("profitsFrom") + '</div>' +
+    var html = '<div class="stake-columns">' +
+      '<div class="stake-section"><div class="stake-heading pro">' + CHECK_ICON + t("profitsFrom") + '</div>' +
       '<div class="stake-list">' + (pro.length ? pro.map(function (it) { return stakeCardHtml(it, "pro", story); }).join("") : '<div class="stake-empty">' + t("noProfiteers") + '</div>') + '</div></div>' +
       '<div class="stake-section"><div class="stake-heading con">' + MINUS_ICON + t("losesFrom") + '</div>' +
       '<div class="stake-list">' + (con.length ? con.map(function (it) { return stakeCardHtml(it, "con", story); }).join("") : '<div class="stake-empty">' + t("noLosers") + '</div>') + '</div></div>' +
+      '</div>' +
       (sh.note ? '<div class="stake-note">' + escapeHtml(sh.note) + '</div>' : '');
     return html;
   }
