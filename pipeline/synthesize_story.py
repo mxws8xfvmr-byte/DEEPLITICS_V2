@@ -34,7 +34,7 @@ zu viele Tokens/Rechenzeit braucht":
    `primary_sources` serverseitig fix auf leer gesetzt (siehe
    `_finalize_story_dict`), das braucht tool-verifizierte URLs, die ohne
    Such-Tool nicht verlässlich sind.
-   `market_correlation` (Punkt 9/8) ist ANDERS: hier ist auch OHNE
+   `market_correlation` (Punkt 10/9) ist ANDERS: hier ist auch OHNE
    Recherche-Tool eine ehrliche QUALITATIVE Einschätzung aus dem
    Modell-Allgemeinwissen möglich und erwünscht (Nutzer-Feedback
    24.08.2026: "sei sensibler bei Marktkorrelation" -- vorher fehlte das
@@ -50,6 +50,18 @@ zu viele Tokens/Rechenzeit braucht":
 5. Token-Nutzung wird pro Story mitgeloggt (`_pipeline_meta`), als
    Diagnosefeld, nicht Teil des offiziellen `schema.py::Story`-Vertrags,
    vom Frontend ignoriert.
+
+Neu in v7 (Nutzer-Feedback 27.08.2026: "Stakeholder sehen nicht schön aus,
+mache daraus eine Pro/Con Section, diskutiere jeweils die Sinnhaftigkeit der
+Massnahmen eines Politikers, bringe immer Perspektive und Gegenperspektive
+ein"): jedes `stakeholders.pro`/`.con`-Element bekommt zusaetzlich zu
+`reason` ein `counter`-Feld mit der staerksten echten Gegenperspektive zu
+genau dieser Einschaetzung (kein Strawman), s. Punkt 7 der analytischen
+Anweisungen unten und Feldbeschreibung im Schema. Dieselbe Perspektiven-/
+Gegenperspektiven-Haltung gilt jetzt auch allgemein fuer `deep_dive`/
+`cui_bono`, ausdruecklich auch bei reiner Faktenmeldung ohne offenen
+Streit -- ohne dabei die STIL-Neutralitaetsvorgabe zu verletzen (beide
+Seiten benennen, keine einnehmen).
 
 Zwei Ausführungsmodi:
   1) `synthesize_with_claude(...)` ruft die Anthropic API auf.
@@ -150,13 +162,15 @@ Gib AUSSCHLIESSLICH valides JSON zurück mit exakt diesen Feldern:
     "pro": [
       {
         "entity": "muss exakt mit einem 'name' aus 'entities' uebereinstimmen",
-        "reason": "1 knapper Satz: WORIN konkret der Vorteil/Gewinn besteht"
+        "reason": "1 knapper Satz: WORIN konkret der Vorteil/Gewinn besteht",
+        "counter": "1-2 knappe Saetze: die STAERKSTE echte Gegenperspektive zu dieser Einschaetzung -- warum andere (Gegner, Betroffene, eine andere politische Seite) das anders sehen, relativieren oder bestreiten wuerden. Kein Strawman, eine ernsthafte Gegenposition. null nur, wenn wirklich keine nachvollziehbare Gegenposition existiert."
       }
     ],
     "con": [
       {
         "entity": "muss exakt mit einem 'name' aus 'entities' uebereinstimmen",
-        "reason": "1 knapper Satz: WORIN konkret der Nachteil/Verlust besteht"
+        "reason": "1 knapper Satz: WORIN konkret der Nachteil/Verlust besteht",
+        "counter": "1-2 knappe Saetze: die STAERKSTE echte Gegenperspektive zu dieser Einschaetzung, s. Feldbeschreibung bei 'pro'. null nur, wenn wirklich keine existiert."
       }
     ],
     "note": "optionaler 1-Satz-Hinweis, z.B. Unsicherheit/Kontext, sonst null"
@@ -165,7 +179,10 @@ Gib AUSSCHLIESSLICH valides JSON zurück mit exakt diesen Feldern:
   // auftauchen (damit sie im Frontend anklickbar sind). Leer lassen
   // ([]) statt einen Akteur zu erfinden, der nicht durch die Quellen
   // gedeckt ist. stakeholders selbst NULL setzen nur, wenn wirklich
-  // weder Gewinner noch Verlierer identifizierbar sind (selten).
+  // weder Gewinner noch Verlierer identifizierbar sind (selten). `counter`
+  // ist das Kernstueck der Pro/Con-Diskussion im Frontend (s. `counter`-
+  // Feldbeschreibung oben) -- bitte moeglichst nie leer lassen, das ist
+  // KEIN optionales Nice-to-have, sondern der Punkt der ganzen Sektion.
 }
 """
 
@@ -267,6 +284,20 @@ JEDEM Thema, unabhängig vom Inhalt, dieselbe analytische Haltung an:
    erzwingen, wenn keines vorhanden ist.
 6. Nutze wenn vorhanden das og:image eines der Quellartikel als
    `image_url` (Hero-Bild der Story). Nie eine Bild-URL erfinden.
+7. Perspektive UND Gegenperspektive (Nutzer-Feedback 27.08.2026: "diskutiere
+   jeweils die Sinnhaftigkeit der Massnahmen eines Politikers, bringe immer
+   Perspektive und Gegenperspektive ein"). Das gilt in ZWEI Formen:
+   a) Fuer JEDEN Akteur in `stakeholders` (pro UND con): fuelle `counter`
+      mit der staerksten echten Gegenposition zu `reason` -- warum jemand
+      anderes (Gegner, Betroffene, eine andere politische Seite) diese
+      Einschaetzung bestreiten, relativieren oder anders bewerten wuerde.
+      Kein Strawman, eine ernsthaft vertretene Position.
+   b) Auch bei reiner Faktenmeldung ohne offenen Streit: frage dich aktiv,
+      wie die jeweils andere politische Seite oder ein betroffener Akteur
+      dieselben Fakten anders einordnen wuerde, und lass das in
+      `deep_dive`/`cui_bono` einfliessen. Das ist KEIN Freibrief, selbst
+      Position zu beziehen: beide Seiten sachlich benennen, keine der
+      beiden Positionen einnehmen, s. Neutralitaetsvorgabe in STIL unten.
 {research_points}
 STIL (gilt für summary/deep_dive/cui_bono, ausnahmslos):
 - SYNTHETISCH, nicht als Mosaik: Verschmilz die Einzelartikel zu EINEM
@@ -288,7 +319,7 @@ STIL (gilt für summary/deep_dive/cui_bono, ausnahmslos):
 """
 
 ANALYTICAL_INSTRUCTIONS_RESEARCH_POINTS = """\
-7. Suche AKTIV mit dem `web_search`-Tool nach PRIMÄRQUELLEN, nicht nur nach
+8. Suche AKTIV mit dem `web_search`-Tool nach PRIMÄRQUELLEN, nicht nur nach
    journalistischer Berichterstattung: offizielle Regierungsdokumente,
    Pressemitteilungen von Behörden/Abgeordneten, Gerichtsentscheidungen,
    Statements internationaler Organisationen. Das ist, worauf sich die
@@ -300,7 +331,7 @@ ANALYTICAL_INSTRUCTIONS_RESEARCH_POINTS = """\
    nichts Belastbares gefunden, bleibt `primary_sources` leer, keine URL
    erfinden. Nutze das Such-Tool sparsam und gezielt (wenige, präzise
    Anfragen), nicht erschöpfend.
-8. Ordne die Story, wo ein Konzept wirklich passt, durch die Linse EINES
+9. Ordne die Story, wo ein Konzept wirklich passt, durch die Linse EINES
    politikwissenschaftlichen/politiktheoretischen Konzepts ein (z.B.
    zivil-militärische Aufsicht, Versicherheitlichung/Securitization,
    Prinzipal-Agent-Probleme, Escalation-Dominance, State Capture,
@@ -308,7 +339,7 @@ ANALYTICAL_INSTRUCTIONS_RESEARCH_POINTS = """\
    separate `political_theory`-Feld, das im Frontend hinter einem Button
    versteckt ist. Kein Konzept erzwingen, wenn keines wirklich passt,
    dann `political_theory: null`.
-9. Prüfe mit dem `web_search`-Tool EHRLICH auf eine Marktkorrelation
+10. Prüfe mit dem `web_search`-Tool EHRLICH auf eine Marktkorrelation
    (`market_correlation`): Aktien, Rohstoffpreise, Indizes, Währungen, die
    recherchierbar auf dieses Ereignis reagiert haben. Eine nicht gefundene
    Korrelation ist ein vollständiges, oft das ehrlichere Ergebnis,
@@ -319,13 +350,13 @@ ANALYTICAL_INSTRUCTIONS_RESEARCH_POINTS = """\
 """
 
 ANALYTICAL_INSTRUCTIONS_LITE_NOTE = """\
-7. Diese Story wird OHNE Web-Recherche-Tool erstellt (Kosten-/
+8. Diese Story wird OHNE Web-Recherche-Tool erstellt (Kosten-/
    Zeit-optimierter Modus). Fülle `political_theory`, wenn ein Konzept
    wirklich passt, sonst `null`. `primary_sources` bleibt in diesem Modus
    leer (`[]`), dazu MUSST du nichts recherchieren oder ausdenken -- das
    braucht tool-verifizierte URLs, die hier nicht verfügbar sind, lass das
    Feld einfach weg oder setze es auf `[]`.
-8. `market_correlation` FÜLLE trotzdem aus, aus deinem Allgemeinwissen
+9. `market_correlation` FÜLLE trotzdem aus, aus deinem Allgemeinwissen
    (keine Recherche nötig, siehe Feld-Beschreibung im Schema oben für das
    genaue Format): ist ein plausibler Zusammenhang mit Finanzmärkten
    erkennbar (Aktien, Währungen, Rohstoffe, Anleihen)? Ein großer
