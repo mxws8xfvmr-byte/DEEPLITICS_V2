@@ -1,302 +1,159 @@
 """
-Market correlation enrichment for Deeplitics v1.
+Verifizierte Marktdaten via yfinance (Nutzer-Feedback 24.08.2026: "sei
+sensibler bei Marktkorrelation!" und, nachdem ein anderer Chat dabei ein
+Chaos angerichtet hat, "überlege dir wie man wirklich die yfinance
+Einbindung machen kann").
 
-Fetches historical stock price data from Yahoo Finance around story publication dates
-and calculates price movements to identify potential market correlations.
+WICHTIG -- bewusst ANDERS gebaut als der Vorschlag aus dem anderen Chat:
+Dort wurde ein komplett neues, paralleles Datenfeld `story.market_impacts`
+eingeführt (Liste von Ticker-Karten), erzeugt aus einem hartkodierten
+Text-Keyword->Ticker-Dictionary (`TICKER_MAPPING = {"Tesla": "TSLA", ...}`),
+UND `app.js::marketHtml` komplett umgeschrieben, um dieses neue Feld statt
+des bestehenden `market_correlation` zu rendern. Das hätte zwei
+konkurrierende Markt-Datenmodelle im selben Projekt geschaffen und alles
+bisher gebaute UI (Bauhaus-Chart-Card, "Einschätzung aus Allgemeinwissen"-
+Badge, echte vs. qualitative Unterscheidung, s. synthesize_story.py)
+stillschweigend überschrieben. Keywords aus dem Story-Text zu grep'en ist
+außerdem viel ungenauer als das Modell selbst zu fragen, das den vollen
+Kontext der Story kennt.
 
-Usage:
-    from enrich_market_data import enrich_all_stories
-    stories = enrich_all_stories(stories)
+Deshalb hier stattdessen: dieses Modul ERGÄNZT nur das BESTEHENDE
+`market_correlation`-Feld. Das Modell selbst darf in seiner JSON-Antwort
+optional ein paar echte Yahoo-Finance-Ticker nennen, wenn es einen klaren
+Marktbezug sieht (s. `STORY_JSON_SCHEMA_HINT_MARKET_LITE` und
+`STORY_JSON_SCHEMA_HINT_RESEARCH` in synthesize_story.py, Feld
+`market_correlation.tickers`). Dieses Modul holt für genau diese Ticker
+ECHTE historische Kursdaten von Yahoo Finance (yfinance, kostenlos, kein
+API-Key nötig) und füllt damit `market_correlation.series` -- im EXAKT
+selben Format, das `app.js::marketHtml`/`drawMarketChart` bereits für
+`research_depth="full"` rendert. Keine neue Datenstruktur, KEINE
+Frontend-Änderung nötig: eine bisher nur qualitative Einschätzung (lite-
+Modus) wird dadurch zu einem echten, mit Zahlen belegten Chart aufgewertet,
+`verified_live` wechselt von False auf True.
+
+Läuft NACH der Synthese (s. run_pipeline.py), pro Story, mit try/except
+drumherum -- ein yfinance-Ausfall (Rate-Limit, Netzwerk, ungültiger
+Ticker) darf niemals den Lauf oder die Story selbst zum Absturz bringen,
+die Story bleibt dann einfach bei ihrer bisherigen qualitativen
+Einschätzung ohne Chart.
 """
 
-import yfinance as yf
-from datetime import datetime, timedelta
-import json
-import logging
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
+import sys
+from datetime import datetime, timedelta, timezone
 
-# Ticker-Mapping: Story-Keywords → Stock Tickers
-# Erweitere diese Liste je nach deinen Storys
-TICKER_MAPPING = {
-    # Gefängnisse & Einwanderung
-    "GEO Group": "GEO",
-    "geo group": "GEO",
-    "CoreCivic": "CXW",
-    "corecivic": "CXW",
-    "private prison": ["GEO", "CXW"],
-    "detention": ["GEO", "CXW"],
-    "ICE": ["GEO", "CXW"],
-    
-    # Verteidigung
-    "Raytheon": "RTX",
-    "Lockheed Martin": "LMT",
-    "Northrop Grumman": "NOC",
-    "Boeing": "BA",
-    "defense contractor": ["RTX", "LMT", "NOC", "BA"],
-    "missile": ["RTX", "LMT", "NOC"],
-    
-    # Energie/Rohstoffe
-    "oil": "CL=F",
-    "crude": "CL=F",
-    "Russia": "RSX",
-    "GAZPROM": "GAZP.ME",  # Nicht auf Yahoo, aber versuchen
-    
-    # Technologie
-    "Tesla": "TSLA",
-    "tesla": "TSLA",
-    "Apple": "AAPL",
-    "apple": "AAPL",
-    "Google": "GOOGL",
-    "google": "GOOGL",
-    "Microsoft": "MSFT",
-    "microsoft": "MSFT",
-    "Meta": "META",
-    "Amazon": "AMZN",
-    
-    # Pharma/Biotech
-    "vaccine": ["JNJ", "PFE", "MRNA"],
-    "Pfizer": "PFE",
-    "pfizer": "PFE",
-    "Moderna": "MRNA",
-    "moderna": "MRNA",
-    "Johnson & Johnson": "JNJ",
-    
-    # Regionale ETFs
-    "Ukraine": "IYM",  # iShares MSCI Emerging Markets
-    "ukraine": "IYM",
-    "Taiwan": "EWT",   # iShares MSCI Taiwan ETF
-    "taiwan": "EWT",
-    "Afghanistan": "IYM",
-    "afghanistan": "IYM",
-    
-    # Finanz-Indizes
-    "S&P 500": "^GSPC",
-    "sp 500": "^GSPC",
-    "nasdaq": "^IXIC",
-    "dow": "^DJI",
-}
+# Sicherheitsgrenze: nicht mehr als ein paar Ticker pro Story abfragen,
+# auch wenn das Modell mehr genannt hat -- yfinance-Aufrufe sind zwar
+# kostenlos, aber nicht kostenlos an ZEIT (mehrere sequentielle HTTP-Calls
+# pro Story), und niemand braucht 10 Charts auf einer Story-Seite.
+MAX_TICKERS_PER_STORY = 3
+LOOKBACK_DAYS = 10
+LOOKAHEAD_DAYS = 10
 
-def extract_tickers_from_story(story):
-    """
-    Extrahiere potenzielle Ticker aus Story-Metadaten und Text.
-    
-    Args:
-        story: Dict mit Story-Daten
-        
-    Returns:
-        Set von eindeutigen Tickers
-    """
-    tickers = set()
-    
-    # Suche in Stakeholders (Organisationen)
-    if "stakeholders" in story:
-        for stakeholder in story.get("stakeholders", []):
-            name = stakeholder.get("name", "").lower()
-            if name in TICKER_MAPPING:
-                ticker_or_list = TICKER_MAPPING[name]
-                if isinstance(ticker_or_list, list):
-                    tickers.update(ticker_or_list)
-                else:
-                    tickers.add(ticker_or_list)
-    
-    # Suche in Title, Summary, Deep Dive
-    text_fields = [
-        story.get("title", ""),
-        story.get("summary", ""),
-        story.get("deep_dive", ""),
-    ]
-    text = " ".join(text_fields).lower()
-    
-    for keyword, ticker_or_list in TICKER_MAPPING.items():
-        if keyword.lower() in text:
-            if isinstance(ticker_or_list, list):
-                tickers.update(ticker_or_list)
-            else:
-                tickers.add(ticker_or_list)
-    
-    return tickers
 
-def fetch_market_data(ticker, pub_date, window_days=15):
-    """
-    Fetche Preisdaten für einen Ticker um ein Publikationsdatum herum.
-    
-    Args:
-        ticker: z.B. "GEO", "TSLA", "^GSPC"
-        pub_date: datetime oder String "YYYY-MM-DD"
-        window_days: Tage vor/nach Publikation zu fetchen
-        
-    Returns:
-        pandas DataFrame mit Preisdaten oder None bei Fehler
-    """
+def _parse_center_date(story: dict) -> datetime:
+    """Story-Datum als Mittelpunkt fuers Kursfenster, Fallback auf heute
+    falls fehlend/kaputt -- besser ein leicht falsches Fenster als ein
+    kompletter Absturz."""
+    raw = story.get("generated_at")
+    if raw:
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
+
+
+def _fetch_ticker_series(ticker: str, center: datetime) -> dict | None:
+    """Echte Tagesschlusskurse fuer EINEN Ticker im Fenster um `center`,
+    im Format, das app.js::drawMarketChart erwartet. None bei jedem
+    Fehlschlag (falscher/erfundener Ticker, kein Handel in dem Zeitraum,
+    Netzwerk/Rate-Limit) -- wird vom Aufrufer als "kein Ticker" behandelt,
+    nicht als harter Fehler."""
     try:
-        if isinstance(pub_date, str):
-            pub_date = datetime.strptime(pub_date, "%Y-%m-%d")
-        
-        start = (pub_date - timedelta(days=window_days)).strftime('%Y-%m-%d')
-        end = (pub_date + timedelta(days=window_days)).strftime('%Y-%m-%d')
-        
-        # Fetche Daten (progress=False: keine Ausgabe in Terminal)
-        data = yf.download(ticker, start=start, end=end, progress=False)
-        
-        if data.empty:
-            logger.warning(f"Keine Daten für {ticker} gefunden")
-            return None
-        
-        return data
-    except Exception as e:
-        logger.error(f"Fehler beim Fetchen von {ticker}: {e}")
+        import yfinance as yf
+    except ImportError:
+        print("[info] yfinance nicht installiert -- Marktdaten-Verifizierung übersprungen.", file=sys.stderr)
         return None
 
-def calculate_correlation(data, pub_date, ticker):
-    """
-    Berechne Preisbewegung vor und nach Publikation.
-    
-    Args:
-        data: pandas DataFrame von yfinance (mit 'Close' Spalte)
-        pub_date: Publikationsdatum (datetime oder String "YYYY-MM-DD")
-        ticker: Ticker-Symbol
-        
-    Returns:
-        Dict mit Korrelationsdaten
-    """
-    if isinstance(pub_date, str):
-        pub_date_str = pub_date
-        pub_date = datetime.strptime(pub_date, "%Y-%m-%d")
-    else:
-        pub_date_str = pub_date.strftime("%Y-%m-%d")
-    
     try:
-        # Finde Close-Preis am Publikationstag oder davor (Märkte könnten geschlossen sein)
-        price_before = None
-        price_after_7d = None
-        
-        # Suche Preis am/vor Publikationstag (bis zu 5 Tage zurück)
-        for offset in range(0, 5):
-            search_date = (pub_date - timedelta(days=offset)).strftime('%Y-%m-%d')
-            if search_date in data.index:
-                price_before = data.loc[search_date, 'Close']
-                break
-        
-        # Suche Preis 7 Tage nach Publikation (mit ±1 Tag Toleranz)
-        for offset in range(0, 8):
-            search_date = (pub_date + timedelta(days=offset + 7)).strftime('%Y-%m-%d')
-            if search_date in data.index:
-                price_after_7d = data.loc[search_date, 'Close']
-                break
-        
-        if price_before is None or price_after_7d is None:
-            return {
-                "ticker": ticker,
-                "status": "insufficient_data",
-                "message": f"Nicht genug Preisdaten für {ticker} um {pub_date_str}"
-            }
-        
-        pct_change = ((price_after_7d - price_before) / price_before) * 100
-        
+        start = (center - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+        # +1 Tag, damit `end` (yfinance-Semantik: exklusiv) den letzten
+        # gewuenschten Tag noch mit einschliesst.
+        end = (center + timedelta(days=LOOKAHEAD_DAYS + 1)).strftime("%Y-%m-%d")
+        hist = yf.Ticker(ticker).history(start=start, end=end, interval="1d")
+        if hist is None or hist.empty or "Close" not in hist.columns:
+            return None
+        points = [
+            {"date": idx.strftime("%Y-%m-%d"), "value": round(float(close), 2)}
+            for idx, close in hist["Close"].items()
+        ]
+        # Ein einzelner Punkt ergibt keinen sinnvollen Chart/keine
+        # erkennbare Bewegung -- dann lieber gar nicht anzeigen.
+        if len(points) < 2:
+            return None
         return {
-            "ticker": ticker,
-            "status": "ok",
-            "pub_date": pub_date_str,
-            "price_before": round(float(price_before), 2),
-            "price_after_7d": round(float(price_after_7d), 2),
-            "pct_change": round(pct_change, 2),
-            "correlation_strength": classify_correlation(pct_change),
+            "label": ticker,
+            "raw_unit": "USD",
+            "points": points,
+            "source_url": f"https://finance.yahoo.com/quote/{ticker}",
         }
-    except Exception as e:
-        logger.error(f"Fehler bei Berechnung für {ticker}: {e}")
-        return {
-            "ticker": ticker,
-            "status": "error",
-            "message": str(e)
-        }
+    except Exception as exc:  # noqa: BLE001 - jeder yfinance-Fehler ist hier nicht-fatal
+        print(f"    [warn] yfinance-Abruf für Ticker '{ticker}' fehlgeschlagen: {exc}", file=sys.stderr)
+        return None
 
-def classify_correlation(pct_change):
-    """
-    Klassifiziere Stärke der Preisbewegung.
-    
-    ≥15% oder ≤-15% = strong
-    5–15% oder -5 bis -15% = moderate
-    1–5% oder -1 bis -5% = weak
-    <1% oder >-1% = none (keine erkennbare Bewegung)
-    
-    Args:
-        pct_change: Prozentuale Preisänderung (positive oder negative)
-        
-    Returns:
-        String: "strong", "moderate", "weak", or "none"
-    """
-    abs_change = abs(pct_change)
-    
-    if abs_change >= 15:
-        return "strong"
-    elif abs_change >= 5:
-        return "moderate"
-    elif abs_change >= 1:
-        return "weak"
-    else:
-        return "none"
 
-def enrich_story_with_market_data(story):
-    """
-    Hauptfunktion: Anreichere einzelne Story mit Marktdaten.
-    
-    Args:
-        story: Dict mit Story-Daten (muss 'pub_date' enthalten)
-        
-    Returns:
-        Modifizierte Story mit neuem 'market_impacts' Feld
-    """
-    pub_date = story.get("pub_date")
-    if not pub_date:
-        logger.warning(f"Story '{story.get('title', 'Unknown')}' hat kein pub_date")
-        story["market_impacts"] = []
-        return story
-    
-    # Extrahiere Tickers
-    tickers = extract_tickers_from_story(story)
-    
+def enrich_market_data(story: dict) -> bool:
+    """Veredelt `story['market_correlation']` mit echten yfinance-Daten,
+    falls das Modell `tickers` genannt UND noch keine `series` vorhanden
+    ist (in research_depth="full" kann bereits eine web_search-basierte
+    `series` existieren -- die wird NICHT überschrieben, um keine bereits
+    recherchierte Einordnung zu verlieren). Mutiert `story` in-place.
+    Gibt True zurück, wenn mindestens ein Ticker erfolgreich verifiziert
+    wurde (rein informativ fürs Logging)."""
+    mc = story.get("market_correlation")
+    if not isinstance(mc, dict) or not mc.get("has_correlation"):
+        return False
+    if mc.get("series"):
+        # Schon eine (z.B. recherchierte) series vorhanden -- nicht anfassen.
+        mc.pop("tickers", None)
+        return False
+
+    tickers = [t for t in (mc.get("tickers") or []) if isinstance(t, str) and t.strip()]
+    mc.pop("tickers", None)  # internes Zwischenfeld, nie ins finale JSON/Frontend
     if not tickers:
-        logger.debug(f"Keine Tickers für Story '{story.get('title')}' identifiziert")
-        story["market_impacts"] = []
-        return story
-    
-    logger.info(f"Story '{story.get('title')}' — fetche Daten für: {', '.join(sorted(tickers))}")
-    
-    market_impacts = []
-    for ticker in sorted(tickers):
-        # Fetche Daten
-        data = fetch_market_data(ticker, pub_date, window_days=15)
-        
-        if data is None:
-            market_impacts.append({
-                "ticker": ticker,
-                "status": "fetch_failed",
-                "message": f"Konnte keine Daten für {ticker} abrufen"
-            })
-            continue
-        
-        # Berechne Korrelation
-        correlation = calculate_correlation(data, pub_date, ticker)
-        market_impacts.append(correlation)
-    
-    story["market_impacts"] = market_impacts
-    return story
+        return False
 
-def enrich_all_stories(stories):
-    """
-    Anreichere alle Stories in einer Liste mit Marktdaten.
-    
-    Args:
-        stories: List von Story-Dicts
-        
-    Returns:
-        List von angereicherten Story-Dicts
-    """
-    enriched = []
-    for i, story in enumerate(stories, 1):
-        logger.info(f"Verarbeite Story {i}/{len(stories)}")
-        enriched_story = enrich_story_with_market_data(story)
-        enriched.append(enriched_story)
-    
-    return enriched
+    center = _parse_center_date(story)
+    series = []
+    for ticker in tickers[:MAX_TICKERS_PER_STORY]:
+        s = _fetch_ticker_series(ticker.strip(), center)
+        if s:
+            series.append(s)
+
+    if not series:
+        return False
+
+    mc["series"] = series
+    mc["verified_live"] = True
+    note = (mc.get("note") or "").strip()
+    verified_note = "Kursdaten via Yahoo Finance (yfinance), echte Tagesschlusskurse."
+    mc["note"] = f"{note} {verified_note}".strip() if note else verified_note
+    return True
+
+
+def enrich_all_stories(stories: list[dict]) -> list[dict]:
+    """Batch-Variante über eine ganze Story-Liste, mutiert und gibt
+    dieselbe Liste zurück -- ein einzelner Story-Fehlschlag darf die
+    anderen Storys nicht mit runterreissen."""
+    n_ok = 0
+    for story in stories:
+        try:
+            if enrich_market_data(story):
+                n_ok += 1
+        except Exception as exc:  # noqa: BLE001
+            print(f"    [warn] Marktdaten-Anreicherung für '{story.get('title', '?')}' fehlgeschlagen: {exc}", file=sys.stderr)
+    if n_ok:
+        print(f"[info] {n_ok} Storys mit echten Yahoo-Finance-Kursdaten verifiziert.", file=sys.stderr)
+    return stories
