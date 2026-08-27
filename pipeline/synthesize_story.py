@@ -199,6 +199,7 @@ STORY_JSON_SCHEMA_HINT_RESEARCH = """
         "source_url": "Quelle der Kursdaten"
       }
     ],
+    "tickers": ["0-3 ECHTE Yahoo-Finance-Ticker-Symbole der oben genannten Instrumente (z.B. 'BZ=F' fuer Brent), NUR falls du dir bei der exakten Schreibweise sicher bist. Wird NUR genutzt, falls 'series' oben leer bleibt -- ein server-seitiger Dienst holt dann ECHTE Kursdaten fuer diese Ticker nach, statt dass die Story ganz ohne Chart bleibt."],
     "note": "Hinweis auf Näherungen/Indexierung, falls zutreffend"
   },
   // WICHTIG: has_correlation=false mit leerem 'series' ist ein voll
@@ -221,6 +222,7 @@ STORY_JSON_SCHEMA_HINT_MARKET_LITE = """
   "market_correlation": {
     "has_correlation": true,
     "explanation": "2-4 Sätze AUS DEINEM ALLGEMEINWISSEN (keine Live-Recherche): welche Märkte/Anlageklassen bei diesem Themenfeld typischerweise reagieren und warum (z.B. bei neuen Zöllen: betroffene Aktienindizes/Branchen, Wechselkurse, Rohstoffe; bei Sanktionen: Energiepreise, betroffene Währungen; bei Zentralbankentscheidungen: Anleiherenditen). Sei GROSSZÜGIG beim Erkennen einer plausiblen Korrelation -- ein großer Handelskonflikt, neue Zölle, Sanktionen, ein Kriegsausbruch oder eine Zentralbankentscheidung haben so gut wie IMMER einen bekannten, plausiblen Marktbezug, den du aus Allgemeinwissen benennen kannst, auch ohne exakte tagesaktuelle Zahlen.",
+    "tickers": ["0-3 ECHTE, offizielle Yahoo-Finance-Ticker-Symbole fuer die in 'explanation' genannten Instrumente, NUR wenn du dir bei der exakten Schreibweise wirklich sicher bist -- z.B. Aktien wie 'LMT' oder 'GEO', Indizes wie '^GSPC' oder '^VIX', Rohstoff-Futures wie 'BZ=F' (Brent) oder 'GC=F' (Gold), Waehrungspaare wie 'EURUSD=X'. Ein Server-seitiger Dienst (yfinance) holt fuer diese Ticker ECHTE historische Kursdaten und ersetzt damit deine Einschaetzung durch einen verifizierten Chart. Bei Unsicherheit ueber die exakte Schreibweise leer lassen ([]) statt zu raten -- ein falscher Ticker liefert schlicht keine Daten, ist also ungefaehrlich, aber ein erfundener sollte trotzdem vermieden werden."],
     "note": "kurzer Hinweis, dass dies eine Einschätzung aus Allgemeinwissen ist, keine live abgefragten Kursdaten"
   },
   // has_correlation=false ist ein akzeptables Ergebnis, aber NUR wenn
@@ -229,7 +231,8 @@ STORY_JSON_SCHEMA_HINT_MARKET_LITE = """
   // nicht aus reiner Vorsicht pauschal auf false setzen. NIEMALS `series`,
   // Kurszahlen oder Datenpunkte in diesem Feld angeben, das ist in diesem
   // Modus ohne Recherche-Tool nicht seriös möglich und wird serverseitig
-  // ohnehin entfernt.
+  // ohnehin entfernt -- `tickers` ist die einzige Ausnahme, dafuer siehe
+  // Feldbeschreibung oben.
 
 """
 
@@ -330,7 +333,12 @@ ANALYTICAL_INSTRUCTIONS_LITE_NOTE = """\
    Zentralbankentscheidung haben praktisch immer einen bekannten
    Marktbezug -- benenne ihn qualitativ, auch ohne Recherche-Tool. NIEMALS
    konkrete Kurszahlen oder Datenpunkte erfinden, das gehört nicht in
-   dieses Feld in diesem Modus.
+   dieses Feld in diesem Modus. Nenne zusätzlich in `tickers` 0-3 ECHTE
+   Yahoo-Finance-Symbole der Instrumente, die du in der Einschätzung
+   benennst (nur falls du dir bei der exakten Schreibweise sicher bist,
+   sonst leer lassen) -- ein Server-seitiger Dienst holt dafür nach der
+   Synthese echte, verifizierte Kursdaten nach und macht aus deiner
+   Einschätzung einen echten Chart.
 """
 
 
