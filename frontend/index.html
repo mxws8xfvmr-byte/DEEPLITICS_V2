@@ -167,7 +167,6 @@ button { font-family: inherit; cursor: pointer; }
   background: var(--bg-card); border-radius: var(--radius-l); overflow: hidden;
   border: 1px solid var(--border); cursor: pointer;
   transition: transform .28s var(--ease), box-shadow .28s var(--ease), background .2s;
-  display: flex; flex-direction: column;
 }
 .card:hover { transform: translateY(-3px); box-shadow: var(--shadow); background: var(--bg-card-hover); }
 
@@ -179,10 +178,29 @@ button { font-family: inherit; cursor: pointer; }
 .media .fallback svg { width: 34%; height: 34%; opacity: .92; }
 .media img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 
-.card-media { aspect-ratio: 16/10.5; border-radius: var(--radius-l) var(--radius-l) 0 0; }
+/* Bild-zu-Text-Uebergang (Nutzer-Feedback 27.08.2026, mit Referenzbildern
+   eines anderen News-Feeds: Titel/Dek sollen weich aus dem Bild
+   "auftauchen" statt hart an einer Kante zwischen Bild- und Textblock
+   abzuschneiden). Zwei Zutaten:
+   1) Das Bild ist jetzt hoeher (mehr Bildflaeche, aspect-ratio 4/3 statt
+      16/10.5) UND der Verlauf darueber faedet ganz nach UNTEN hin bis zur
+      exakten Kartenfarbe (var(--bg-card), nicht nur Schwarz) komplett
+      undurchsichtig aus -- am unteren Bildrand ist die Farbe also schon
+      IDENTISCH mit dem Kartenhintergrund darunter.
+   2) .card-body wird per negativem margin-top ueber genau diese bereits
+      volldeckende Zone gezogen (s. unten), sodass Titel/Dek direkt auf dem
+      Bild "liegen" statt in einem separat abgesetzten Block darunter --
+      keine sichtbare Kante mehr, weil beide Flaechen an der Uebergangs-
+      stelle exakt dieselbe Farbe haben. */
+.card-media { aspect-ratio: 4/3; border-radius: var(--radius-l) var(--radius-l) 0 0; }
 .card-media::after {
   content: ""; position: absolute; inset: 0;
-  background: linear-gradient(to top, rgba(0,0,0,0.55), rgba(0,0,0,0) 55%);
+  background: linear-gradient(to top,
+    var(--bg-card) 0%,
+    color-mix(in srgb, var(--bg-card) 88%, transparent) 20%,
+    color-mix(in srgb, var(--bg-card) 45%, transparent) 40%,
+    rgba(0,0,0,0.4) 60%,
+    rgba(0,0,0,0) 82%);
 }
 .cat-chip {
   position: absolute; top: 12px; left: 12px; z-index: 2;
@@ -206,13 +224,16 @@ button { font-family: inherit; cursor: pointer; }
 .save-btn svg { width: 16px; height: 16px; }
 .save-btn.saved svg path { fill: currentColor; }
 
-.card-body { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
-.card-title { font-size: 18px; font-weight: 750; letter-spacing: -0.012em; line-height: 1.28; margin: 0; }
+.card-body {
+  position: relative; z-index: 1; margin-top: -72px;
+  padding: 30px 18px 18px; display: flex; flex-direction: column; gap: 8px;
+}
+.card-title { font-size: 18px; font-weight: 750; letter-spacing: -0.012em; line-height: 1.28; margin: 0; text-shadow: 0 1px 16px rgba(0,0,0,0.3); }
 .card-dek {
   font-size: 14px; color: var(--ink-secondary); line-height: 1.5; margin: 0;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.card-meta { margin-top: auto; padding-top: 6px; font-size: 12.5px; color: var(--ink-muted); display: flex; gap: 8px; align-items: center; }
+.card-meta { padding-top: 6px; font-size: 12.5px; color: var(--ink-muted); display: flex; gap: 8px; align-items: center; }
 .card-meta .dot { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-muted); }
 
 /* ---------- Overlay / Detail view ---------- */
