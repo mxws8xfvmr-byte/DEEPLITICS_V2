@@ -432,6 +432,227 @@ button { font-family: inherit; cursor: pointer; }
 
 .fade-in { animation: fadeIn .35s var(--ease); }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+   
+   /* ===== Market Section Container ===== */
+.market-section {
+  margin: 20px 0;
+  padding: 15px;
+  background: var(--bg-secondary, #f5f5f5);
+  border-radius: 8px;
+  border-left: 3px solid #2196F3;
+}
+ 
+.market-section h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: var(--text-primary, #333);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+ 
+/* ===== Market Grid Layout ===== */
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+ 
+/* ===== Individual Market Card ===== */
+.market-card {
+  padding: 12px;
+  border-radius: 6px;
+  background: white;
+  border: 1px solid #ddd;
+  border-left: 4px solid #999;
+  font-size: 12px;
+  line-height: 1.6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+}
+ 
+.market-card:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  transform: translateY(-1px);
+}
+ 
+/* Positive Bewegung (Aktienkurs gestiegen) */
+.market-card.positive {
+  border-left-color: #4caf50;
+  background: #f1f8f4;
+  border-color: #e8f5e9;
+}
+ 
+/* Negative Bewegung (Aktienkurs gesunken) */
+.market-card.negative {
+  border-left-color: #f44336;
+  background: #fdf1f1;
+  border-color: #ffebee;
+}
+ 
+/* Fehlerfall */
+.market-card.error {
+  border-left-color: #ff9800;
+  background: #fff3e0;
+  border-color: #ffe0b2;
+}
+ 
+/* ===== Market Card Content ===== */
+.market-card .ticker {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--text-primary, #333);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+ 
+.market-card .price-info {
+  font-size: 11px;
+  color: #666;
+  margin: 4px 0;
+  line-height: 1.4;
+}
+ 
+.market-card .price-info small {
+  font-weight: 500;
+  color: #999;
+  display: inline-block;
+  min-width: 65px;
+}
+ 
+.market-card .change {
+  font-weight: 700;
+  font-size: 14px;
+  margin: 8px 0 6px;
+  color: var(--text-primary, #333);
+  line-height: 1.2;
+}
+ 
+/* ===== Correlation Strength Badge ===== */
+.market-card .strength {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-radius: 3px;
+  background: white;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: inline-block;
+}
+ 
+.market-card .strength-strong {
+  background: #c8e6c9;
+  color: #1b5e20;
+  border: 1px solid #81c784;
+}
+ 
+.market-card .strength-moderate {
+  background: #ffe0b2;
+  color: #e65100;
+  border: 1px solid #ffb74d;
+}
+ 
+.market-card .strength-weak {
+  background: #b3e5fc;
+  color: #01579b;
+  border: 1px solid #4fc3f7;
+}
+ 
+.market-card .strength-none {
+  background: #eeeeee;
+  color: #424242;
+  border: 1px solid #bdbdbd;
+}
+ 
+/* ===== Error Messages ===== */
+.market-card .error-msg {
+  color: #d32f2f;
+  font-size: 11px;
+  font-style: italic;
+  line-height: 1.3;
+}
+ 
+/* ===== Market Note (Data Source) ===== */
+.market-note {
+  font-size: 11px;
+  color: #999;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ddd;
+  line-height: 1.4;
+}
+ 
+.market-note small {
+  display: block;
+  margin: 2px 0;
+}
+ 
+/* ===== Responsive Adjustments ===== */
+@media (max-width: 600px) {
+  .market-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  
+  .market-card {
+    padding: 10px;
+    font-size: 11px;
+  }
+  
+  .market-card .ticker {
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  
+  .market-card .change {
+    font-size: 13px;
+    margin: 6px 0 4px;
+  }
+}
+ 
+/* ===== Dark Mode Support (optional) ===== */
+@media (prefers-color-scheme: dark) {
+  .market-section {
+    background: rgba(255, 255, 255, 0.05);
+    border-left-color: #64b5f6;
+  }
+  
+  .market-card {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #e0e0e0;
+  }
+  
+  .market-card.positive {
+    background: rgba(76, 175, 80, 0.15);
+    border-color: rgba(76, 175, 80, 0.3);
+  }
+  
+  .market-card.negative {
+    background: rgba(244, 67, 54, 0.15);
+    border-color: rgba(244, 67, 54, 0.3);
+  }
+  
+  .market-card .ticker {
+    color: #fff;
+  }
+  
+  .market-card .price-info {
+    color: #b0bec5;
+  }
+  
+  .market-card .price-info small {
+    color: #90a4ae;
+  }
+  
+  .market-note {
+    color: #90a4ae;
+    border-top-color: rgba(255, 255, 255, 0.1);
+  }
+}
+   
 </style>
 </head>
 <body>
