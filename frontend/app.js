@@ -659,6 +659,7 @@
     drawMarketChart(story);
     wireSwipe(document.getElementById("tabTrack"));
     syncTabHeight();
+    observeActivePane();
     // Bilder (Entity-Avatare in Stakeholders etc.) koennen den Pane
     // nachtraeglich hoeher machen, sobald sie geladen sind -- Hoehe dann
     // nochmal neu abgleichen.
@@ -676,6 +677,7 @@
     var track = document.getElementById("tabTrack");
     if (track) track.style.transform = "translateX(-" + (i * (100 / TAB_COUNT)) + "%)";
     syncTabHeight();
+    observeActivePane();
   }
 
   /* Der Tab-Carousel (.tab-viewport > .tab-track > 5x .tab-pane) legt alle
@@ -693,6 +695,34 @@
     var active = track.children[state.activeTab];
     var viewport = track.parentElement;
     if (active && viewport) viewport.style.height = active.scrollHeight + "px";
+  }
+
+  /* syncTabHeight() allein reicht nicht: es wird nur bei Tab-WECHSEL und
+     nach Bild-Load aufgerufen, aber NICHT wenn sich der Inhalt INNERHALB
+     des gerade offenen Panes aendert -- genau das passiert bei "Weiterlesen"
+     (readMoreBtn/theoryMoreBtn togglen eine .readmore-box), beim Wechseln
+     zwischen Zeitlinien-Threads (wireThreadTabs ersetzt pane.innerHTML) und
+     beim Aufklappen einzelner Zeitleisten-Eintraege (wireTimelineToggle
+     togglet .tl-item.expanded). Der Viewport blieb dann auf der alten, zu
+     kleinen Hoehe stehen und schnitt den neu sichtbaren Text ab -- das war
+     sowohl der nicht-funktionierende "Weiterlesen"-Button als auch die
+     Luecken/abgeschnittene Formatierung auf Mobile als auch die Zitate, die
+     nicht direkt am ausgeklappten Inhalt klebten (Nutzer-Feedback
+     27.08.2026). Fix: ein ResizeObserver auf dem GERADE AKTIVEN Pane-Element
+     selbst -- der feuert automatisch bei JEDER Groessenaenderung dieses
+     Elements, egal wodurch ausgeloest (Klassen-Toggle, innerHTML-Ersatz,
+     Bild-Load etc.), ohne dass jede einzelne Stelle im Code einzeln
+     `syncTabHeight()` aufrufen muesste. */
+  var tabResizeObserver = (typeof ResizeObserver !== "undefined")
+    ? new ResizeObserver(function () { syncTabHeight(); })
+    : null;
+  function observeActivePane() {
+    if (!tabResizeObserver) return;
+    tabResizeObserver.disconnect();
+    var track = document.getElementById("tabTrack");
+    if (!track) return;
+    var active = track.children[state.activeTab];
+    if (active) tabResizeObserver.observe(active);
   }
 
   function wireSwipe(track) {
