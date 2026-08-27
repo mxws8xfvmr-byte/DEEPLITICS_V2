@@ -491,34 +491,75 @@
     }).join("") + '</div>';
   }
 
-function marketHtml(story) {
-  var impacts = story.market_impacts;
-  
-  if (!impacts || !impacts.length) {
-    return '<div class="market-empty">' + t("noMarket") + '</div>';
-  }
-  
-  var html = '<div class="market-section"><h3>Marktimpact...</h3><div class="market-grid">';
-  
-  impacts.forEach(function (impact) {
-    if (impact.status === "ok") {
-      var directionIcon = impact.pct_change >= 0 ? "📈" : "📉";
-      var colorClass = impact.pct_change >= 0 ? "positive" : "negative";
-      
-      html += '<div class="market-card ' + colorClass + '">' +
-        '<div class="ticker">' + escapeHtml(impact.ticker) + '</div>' +
-        '<div class="price-info">Vor: $' + impact.price_before + '</div>' +
-        '<div class="price-info">nach 7d: $' + impact.price_after_7d + '</div>' +
-        '<div class="change">' + directionIcon + ' ' + (impact.pct_change > 0 ? '+' : '') + impact.pct_change + '%</div>' +
-        '<div class="strength strength-' + impact.correlation_strength + '">' + impact.correlation_strength + '</div>' +
+  function marketHtml(story) {
+    var mc = story.market_correlation;
+    // Kein Feld oder das Modell hat ehrlich KEINEN Zusammenhang gefunden
+    // (has_correlation=false) -- das ist ein vollwertiges Ergebnis, kein
+    // Fehlerzustand, s. noMarket-Text.
+    if (!mc || !mc.has_correlation) {
+      return '<div class="market-empty">' + t("noMarket") + (mc && mc.explanation ? '<div style="margin-top:10px;font-size:13.5px;">' + escapeHtml(mc.explanation) + '</div>' : '') + '</div>';
+    }
+    // has_correlation=true, aber KEINE Kurve/Datenpunkte (Lite-Modus --
+    // qualitative Einschaetzung aus Allgemeinwissen statt Live-Recherche,
+    // s. synthesize_story.py::STORY_JSON_SCHEMA_HINT_MARKET_LITE). Vorher
+    // landete das faelschlich im "keine Korrelation gefunden"-Zweig oben,
+    // obwohl das Modell durchaus einen Zusammenhang sieht (Nutzer-Feedback
+    // 24.08.2026: "keine korrelation bei einem riesigen handelsstreit mit
+    // 50% Zoellen? I doubt it."). Eigener Zweig: Text prominent, klar als
+    // Einschaetzung statt Live-Daten gekennzeichnet, kein Chart (den gibt's
+    // erst mit echten Kurszahlen aus research_depth="full").
+    if (!mc.series || !mc.series.length) {
+      return '<div class="chart-card">' +
+        (mc.explanation ? '<div class="chart-sub">' + escapeHtml(mc.explanation) + '</div>' : '') +
+        '<div class="market-note-badge">' + t("marketQualitative") + '</div>' +
+        (mc.note ? '<div class="chart-note">' + escapeHtml(mc.note) + '</div>' : '') +
       '</div>';
     }
-    // ... rest
-  });
-  
-  return html;
-}
-   
+    var legend = mc.series.length > 1 ? '<div class="legend-row">' + mc.series.map(function (s, i) {
+      return '<div class="legend-item"><span class="legend-swatch" style="background:' + (i === 0 ? "var(--cat-color)" : "var(--ink-muted)") + '"></span>' + escapeHtml(s.label) + '</div>';
+    }).join("") + '</div>' : '';
+    return '<div class="chart-card">' +
+      (mc.explanation ? '<div class="chart-sub">' + escapeHtml(mc.explanation) + '</div>' : '') +
+      legend +
+      '<div style="position:relative"><svg id="mcChart" viewBox="0 0 640 240" width="100%" height="240" style="overflow:visible"></svg>' +
+      '<div class="tooltip" id="mcTooltip"></div></div>' +
+      (mc.note ? '<div class="chart-note">' + escapeHtml(mc.note) + '</div>' : '') +
+    '</div>';
+  }
+
+  var BIAS_CLASS = { left: "bias-left", "center-left": "bias-center-left", center: "bias-center", "center-right": "bias-center-right", right: "bias-right" };
+
+  var DOMAIN_LABELS = {
+    "npr.org": "NPR", "aljazeera.com": "Al Jazeera", "cbsnews.com": "CBS News",
+    "reuters.com": "Reuters", "apnews.com": "AP News", "bbc.co.uk": "BBC", "bbci.co.uk": "BBC",
+    "nbcnews.com": "NBC News", "foxnews.com": "Fox News", "cnn.com": "CNN",
+    "washingtonpost.com": "Washington Post", "nytimes.com": "NYT", "wsj.com": "WSJ",
+    "theguardian.com": "The Guardian", "politico.com": "Politico", "axios.com": "Axios",
+    "thehill.com": "The Hill", "dw.com": "DW", "france24.com": "France24",
+    "themoscowtimes.com": "Moscow Times", "irishtimes.com": "Irish Times",
+    "timesofisrael.com": "Times of Israel", "csis.org": "CSIS",
+    "defensenews.com": "Defense News", "aei.org": "AEI", "usnews.com": "US News",
+    "fortune.com": "Fortune", "pbs.org": "PBS", "senate.gov": "US-Senat",
+    "congress.gov": "Congress.gov", "state.gov": "US State Dept.",
+    "whitehouse.gov": "White House", "hrw.org": "Human Rights Watch"
+  };
+  function hostLabel(url) {
+    try {
+      var h = new URL(url).hostname.replace(/^www\./, "");
+      for (var domain in DOMAIN_LABELS) { if (h === domain || h.indexOf("." + domain) === h.length - domain.length - 1) return DOMAIN_LABELS[domain]; }
+      var base = h.split(".").slice(0, -1).join(".") || h;
+      base = base.split(".")[0];
+      return base.charAt(0).toUpperCase() + base.slice(1);
+    } catch (e) { return "Quelle"; }
+  }
+  function biasForLabel(label) {
+    var keys = Object.keys(SOURCE_BIAS);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].toLowerCase().indexOf(label.toLowerCase()) === 0) return SOURCE_BIAS[keys[i]];
+    }
+    return null;
+  }
+
   function quotesAndSourcesHtml(story) {
     var quotes = story.quotes || [];
     var urls = story.article_urls || [];
